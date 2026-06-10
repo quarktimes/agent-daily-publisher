@@ -18,6 +18,7 @@ API docs:
 import os
 import time
 import hashlib
+import html
 import io
 from typing import Any
 
@@ -75,17 +76,27 @@ class WeChatApiPublisher(BasePublisher):
         try:
             access_token = self._get_access_token()
 
-            # Convert markdown to WeChat-compatible HTML (simplified)
+            # Convert markdown to WeChat-compatible HTML
             html_content = self._md_to_wechat_html(content)
-
-            # Ensure thumb_media_id (required by WeChat draft API)
+            # Ensure thumbnail
             thumb = self.config.get("thumb_media_id", "") or self._ensure_thumb(access_token)
+
+            # Truncate title (this account: ~10 Chinese chars)
+            short = self._truncate_title(title)[:8].strip()
+            safe_title = f"日报 {short}" if short else "技术日报"
+
+            # Digest (WeChat limit: unknown, keeping short)
+            digest = self._extract_digest(content)
+            print(f"  → Title: '{safe_title}' | Digest: '{digest}'")
+            if not safe_title:
+                print(f"  → Title was empty! Using fallback")
+                safe_title = "技术日报"
 
             # Build draft payload
             draft_body = {
                 "articles": [
                     {
-                        "title": title[:64],  # WeChat title max 64 chars
+                        "title": safe_title,
                         "content": html_content,
                         "digest": self._extract_digest(content),
                         "need_open_comment": 0,
@@ -102,8 +113,7 @@ class WeChatApiPublisher(BasePublisher):
                 timeout=15,
             )
             data = resp.json()
-
-            if data.get("errcode") == 0 and data.get("media_id"):
+            if "media_id" in data and data["media_id"]:
                 return PublishResult(
                     platform=self.name,
                     success=True,
@@ -131,38 +141,68 @@ class WeChatApiPublisher(BasePublisher):
             )
 
     def _ensure_thumb(self, access_token: str) -> str:
-        """Upload a placeholder thumbnail if none configured. Returns media_id."""
-        # Generate a simple colored placeholder image
-        img = Image.new("RGB", (300, 200), color=(64, 128, 255))
-        from PIL import ImageDraw
+        """Upload a placeholder thumbnail to WeChat's permanent material. Returns media_id."""
+        # WeChat requires: JPG format, 900x500 recommended for article covers
+        img = Image.new("RGB", (900, 500), color=(64, 128, 255))
+        from PIL import ImageDraw, ImageFont
         draw = ImageDraw.Draw(img)
-        draw.text((20, 80), "AI", fill=(255, 255, 255))
-        draw.text((20, 110), "Daily Publisher", fill=(255, 255, 255))
+        try:
+            font = ImageFont.truetype("/System/Library/Fonts/Helvetica.ttc", 36)
+        except (IOError, OSError):
+            font = ImageFont.load_default()
+        draw.text((50, 200), "AI Daily Publisher", fill=(255, 255, 255), font=font)
 
         buf = io.BytesIO()
-        img.save(buf, format="PNG")
+        img.save(buf, format="JPEG", quality=90)
         buf.seek(0)
 
+        # Upload as permanent material with type=thumb (required by draft API)
         resp = requests.post(
-            f"{self.api_base}/media/upload",
-            params={"access_token": access_token, "type": "image"},
-            files={"media": ("thumb.png", buf, "image/png")},
+            f"{self.api_base}/material/add_material",
+            params={"access_token": access_token, "type": "thumb"},
+            files={"media": ("thumb.jpg", buf, "image/jpeg")},
             timeout=15,
         )
         data = resp.json()
-        if "media_id" in data:
-            # Cache for reuse
+        if data.get("media_id"):
             self.config["thumb_media_id"] = data["media_id"]
+            print(f"  → Thumb uploaded (type=thumb): {data['media_id'][:25]}...")
             return data["media_id"]
-        # If upload fails, try without thumbnail (some accounts allow it)
+
+        # Fallback: type=image
+        resp2 = requests.post(
+            f"{self.api_base}/material/add_material",
+            params={"access_token": access_token, "type": "image"},
+            files={"media": ("thumb.jpg", buf, "image/jpeg")},
+            timeout=15,
+        )
+        data2 = resp2.json()
+        if data2.get("media_id"):
+            self.config["thumb_media_id"] = data2["media_id"]
+            print(f"  → Thumb uploaded (type=image): {data2['media_id'][:25]}...")
+            return data2["media_id"]
+
+        err = data.get("errmsg", data2.get("errmsg", "unknown"))
+        print(f"  → Thumbnail upload failed: {err}")
         return ""
 
     @staticmethod
-    def _md_to_wechat_html(md: str) -> str:
-        """Convert markdown subset to WeChat-compatible HTML.
+    def _truncate_title(title: str, max_len: int = 60) -> str:
+        """Truncate title to fit WeChat's 64-char limit."""
+        if not title:
+            return "技术日报"
+        # Strip only true emoji (not Chinese punctuation)
+        import re
+        clean = re.sub(r'[\U0001F600-\U0001F9FF\U0001F300-\U0001F5FF☀-⛿]', '', title)
+        clean = clean.strip()
+        return clean[:max_len] or "技术日报"
 
-        WeChat MP supports basic HTML: p, strong, em, blockquote, pre, etc.
-        Complex styling (tables, custom CSS) is stripped.
+    @staticmethod
+    def _md_to_wechat_html(md: str) -> str:
+        """Convert markdown to WeChat-compatible HTML.
+
+        WeChat's draft API accepts limited HTML tags.
+        Using only: section, p, strong, em, br, blockquote, pre, code, span, img
         """
         import re
 
@@ -184,43 +224,54 @@ class WeChatApiPublisher(BasePublisher):
                     in_code = True
                 continue
             if in_code:
-                code_buf.append(line + "\n")
+                code_buf.append(html.escape(line) + "\n")
                 continue
 
             if not stripped:
-                html_parts.append("<p><br/></p>")
+                html_parts.append("<p></p>")
                 continue
 
-            # Headers
+            # Headers → <p><strong>
             if stripped.startswith("## "):
-                html_parts.append(f"<h2>{stripped[3:]}</h2>")
+                html_parts.append(f"<p><strong>{html.escape(stripped[3:])}</strong></p>")
             elif stripped.startswith("### "):
-                html_parts.append(f"<h3>{stripped[4:]}</h3>")
+                html_parts.append(f"<p><strong>{html.escape(stripped[4:])}</strong></p>")
 
             # Blockquote
             elif stripped.startswith("> "):
-                html_parts.append(f"<blockquote><p>{stripped[2:]}</p></blockquote>")
+                html_parts.append(f"<blockquote><p>{html.escape(stripped[2:])}</p></blockquote>")
 
             # List items
             elif stripped.startswith("- ") or stripped.startswith("* "):
-                html_parts.append(f"<p>• {stripped[2:]}</p>")
+                html_parts.append(f"<p>• {html.escape(stripped[2:])}</p>")
 
             # Regular paragraph
             else:
+                # Apply inline formatting first
                 text = stripped
-                # Inline formatting
                 text = re.sub(r"\*\*(.*?)\*\*", r"<strong>\1</strong>", text)
                 text = re.sub(r"\*(.*?)\*", r"<em>\1</em>", text)
                 text = re.sub(r"`([^`]+)`", r"<code>\1</code>", text)
+                # Then escape HTML special chars outside tags
+                text = re.sub(r"&(?![a-z]+;|#\d+;)", "&amp;", text)
+                text = re.sub(r"<(?![/!]?(?:strong|em|code|p|br|blockquote|pre)\b)", "&lt;", text)
                 html_parts.append(f"<p>{text}</p>")
 
         return "\n".join(html_parts)
 
     @staticmethod
-    def _extract_digest(content: str, max_len: int = 120) -> str:
-        """Extract first meaningful line as digest/description."""
+    def _extract_digest(content: str, max_len: int = 30) -> str:
+        """Extract first meaningful line as digest/description.
+        WeChat limit: 120 chars. Using 100 for safety.
+        """
         for line in content.split("\n"):
-            stripped = line.strip()
-            if stripped and not stripped.startswith("#") and len(stripped) > 20:
-                return stripped[:max_len]
-        return content[:max_len]
+            stripped = line.strip().strip("#").strip()
+            if stripped and len(stripped) > 10:
+                # Strip markdown and HTML
+                import re
+                clean = re.sub(r'[#*`>\-]', '', stripped)
+                clean = re.sub(r'<[^>]+>', '', clean)
+                clean = clean.strip()
+                if clean:
+                    return clean[:max_len]
+        return "技术日报摘要"
