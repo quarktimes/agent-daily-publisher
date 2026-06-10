@@ -43,16 +43,16 @@ csdn:
 
 wechat_mp:
   enabled: false
-  # ★ 推荐方式：官方草稿箱 API（自动存草稿，你手动点发布）
-  # 需从 mp.weixin.qq.com -> 设置与开发 -> 基本配置 获取
-  # app_id: "your_app_id"
-  # app_secret: "your_app_secret"
-  #
-  # ★ 备用方式：浏览器自动化（无 AppID/Secret 时自动降级）
-  # 首次需扫码登录，Cookie 保存后后续可 headless
-  headless: false               # 浏览器模式：首次必须 false
-  # author: "Your Name"         # 文章作者名
+  # ★ 默认方式：浏览器自动化（推荐，无需固定 IP）
+  #   首次运行需扫码登录，Cookie 保存后可 headless 运行
+  headless: false               # 首次必须 false（看到二维码扫码），之后可改 true
   # cookie_dir: "data/cookies"
+  # author: "Your Name"
+  #
+  # ★ 备选：官方草稿箱 API（需固定 IP 配白名单）
+  #   启用方式：use_api: true + 配 app_id/app_secret
+  #   WECHAT_APP_ID + WECHAT_APP_SECRET 环境变量
+  # use_api: false
 
 # ============================================================
 # MANUAL / FUTURE PLATFORMS

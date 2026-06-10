@@ -272,15 +272,20 @@ def main():
 
     wechat_config = platforms_config.get("wechat_mp", {})
     if wechat_config.get("enabled", False):
-        # Prefer API mode (draft API) over browser automation
-        api_pub = WeChatApiPublisher(wechat_config)
-        if api_pub.validate_config():
-            publishers.append(api_pub)
-            print("  ✓ WeChat MP API publisher configured (draft API)")
+        # Browser automation is the primary method (no IP whitelist needed)
+        # API mode requires fixed IP whitelist — only use if use_api: true
+        if wechat_config.get("use_api", False):
+            api_pub = WeChatApiPublisher(wechat_config)
+            if api_pub.validate_config():
+                publishers.append(api_pub)
+                print("  ✓ WeChat MP API publisher configured (requires IP whitelist)")
+            else:
+                print("  ✗ WeChat MP API: AppID/Secret missing, falling back to browser")
+                publishers.append(WeChatBrowserPublisher(wechat_config))
+                print("  ✓ WeChat MP browser publisher configured")
         else:
-            # Fallback to browser automation
             publishers.append(WeChatBrowserPublisher(wechat_config))
-            print("  ✓ WeChat MP browser publisher configured (fallback)")
+            print("  ✓ WeChat MP browser publisher configured (auto-login via saved cookie)")
         enabled_platforms.add("wechat_mp")
     else:
         print("  - WeChat MP publisher: disabled (configure in config/platforms.yaml)")
