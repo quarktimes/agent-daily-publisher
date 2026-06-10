@@ -20,6 +20,7 @@ import time
 import hashlib
 import html
 import io
+import json
 from typing import Any
 
 import requests
@@ -106,10 +107,12 @@ class WeChatApiPublisher(BasePublisher):
                 ]
             }
 
+            # Use ensure_ascii=False to preserve Chinese characters
             resp = requests.post(
                 f"{self.api_base}/draft/add",
                 params={"access_token": access_token},
-                json=draft_body,
+                data=json.dumps(draft_body, ensure_ascii=False, default=str),
+                headers={"Content-Type": "application/json; charset=utf-8"},
                 timeout=15,
             )
             data = resp.json()
