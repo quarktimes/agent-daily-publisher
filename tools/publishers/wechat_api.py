@@ -82,16 +82,10 @@ class WeChatApiPublisher(BasePublisher):
             # Ensure thumbnail
             thumb = self.config.get("thumb_media_id", "") or self._ensure_thumb(access_token)
 
-            # Truncate title (this account: ~10 Chinese chars)
-            short = self._truncate_title(title)[:8].strip()
-            safe_title = f"日报 {short}" if short else "技术日报"
-
-            # Digest (WeChat limit: unknown, keeping short)
+            # Truncate title to 64 chars at semantic boundary
+            safe_title = self._truncate_title(title)
             digest = self._extract_digest(content)
-            print(f"  → Title: '{safe_title}' | Digest: '{digest}'")
-            if not safe_title:
-                print(f"  → Title was empty! Using fallback")
-                safe_title = "技术日报"
+            print(f"  → Title: '{safe_title}' ({len(safe_title)}c) | Digest: '{digest}'")
 
             # Build draft payload
             draft_body = {
@@ -190,15 +184,31 @@ class WeChatApiPublisher(BasePublisher):
         return ""
 
     @staticmethod
-    def _truncate_title(title: str, max_len: int = 60) -> str:
-        """Truncate title to fit WeChat's 64-char limit."""
+    def _truncate_title(title: str, max_len: int = 64) -> str:
+        """Truncate title to fit WeChat's 64-char limit at a semantic boundary."""
         if not title:
             return "技术日报"
-        # Strip only true emoji (not Chinese punctuation)
         import re
+        # Strip emoji only
         clean = re.sub(r'[\U0001F600-\U0001F9FF\U0001F300-\U0001F5FF☀-⛿]', '', title)
         clean = clean.strip()
-        return clean[:max_len] or "技术日报"
+        if len(clean) <= max_len:
+            return clean or "技术日报"
+
+        # Truncate at sentence boundary: ？。！？!.\n
+        truncated = clean[:max_len]
+        # Find last sentence-ending punctuation within the truncated text
+        for punct in ['？', '！', '。', '?', '!', '；', ';']:
+            pos = truncated.rfind(punct)
+            if pos > max_len * 0.4:  # Only split if we have enough context
+                return truncated[:pos + 1]
+        # Find last space or comma
+        for punct in [' ', '，', ',', '、']:
+            pos = truncated.rfind(punct)
+            if pos > max_len * 0.4:
+                return truncated[:pos]
+        # Hard truncate with ellipsis if no good boundary found
+        return truncated.rstrip() + '…'
 
     @staticmethod
     def _md_to_wechat_html(md: str) -> str:
