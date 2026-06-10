@@ -41,6 +41,7 @@ from tools.publishers.devto import DevToPublisher
 from tools.publishers.juejin import JuejinPublisher
 from tools.publishers.csdn_browser import CsdNBrowserPublisher
 from tools.publishers.wechat_browser import WeChatBrowserPublisher
+from tools.publishers.wechat_api import WeChatApiPublisher
 
 logger = logging.getLogger(__name__)
 
@@ -271,11 +272,18 @@ def main():
 
     wechat_config = platforms_config.get("wechat_mp", {})
     if wechat_config.get("enabled", False):
-        publishers.append(WeChatBrowserPublisher(wechat_config))
+        # Prefer API mode (draft API) over browser automation
+        api_pub = WeChatApiPublisher(wechat_config)
+        if api_pub.validate_config():
+            publishers.append(api_pub)
+            print("  ✓ WeChat MP API publisher configured (draft API)")
+        else:
+            # Fallback to browser automation
+            publishers.append(WeChatBrowserPublisher(wechat_config))
+            print("  ✓ WeChat MP browser publisher configured (fallback)")
         enabled_platforms.add("wechat_mp")
-        print("  ✓ WeChat MP browser publisher configured")
     else:
-        print("  - WeChat MP publisher: disabled (browser mode, configure in config/platforms.yaml)")
+        print("  - WeChat MP publisher: disabled (configure in config/platforms.yaml)")
 
     print()
 

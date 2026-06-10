@@ -43,14 +43,14 @@ csdn:
 
 wechat_mp:
   enabled: false
-  # 微信公众号 uses QR code scan login.
-  # 启用方式：
-  #   1. enabled: true, headless: false
-  #   2. 运行 --publish，浏览器会打开 mp.weixin.qq.com
-  #   3. 用微信扫码登录你的公众号
-  #   4. Cookie 保存后后续可 headless: true
-  publish_as_draft: true
-  headless: false               # 首次必须 false，扫码登录后才能开 headless
+  # ★ 推荐方式：官方草稿箱 API（自动存草稿，你手动点发布）
+  # 需从 mp.weixin.qq.com -> 设置与开发 -> 基本配置 获取
+  # app_id: "your_app_id"
+  # app_secret: "your_app_secret"
+  #
+  # ★ 备用方式：浏览器自动化（无 AppID/Secret 时自动降级）
+  # 首次需扫码登录，Cookie 保存后后续可 headless
+  headless: false               # 浏览器模式：首次必须 false
   # author: "Your Name"         # 文章作者名
   # cookie_dir: "data/cookies"
 
