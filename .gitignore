@@ -1,0 +1,34 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# Data (generated at runtime)
+data/*
+!data/**/.gitkeep
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Environment
+.env
+.env.local
+*.key
+*_key.txt
+
+# Claude Code
+.claude/settings.local.json
+
+# Config with secrets (real keys)
+config/platforms.yaml
+config/*.local.yaml
+config/*.local.yml

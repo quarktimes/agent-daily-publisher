@@ -1,0 +1,65 @@
+# Platform publishing configuration
+#
+# Two types of publishers:
+#   1. API-based: Use platform Open APIs (Dev.to, 掘金, Medium)
+#   2. Browser-based: Use Playwright browser automation (CSDN, 微信公众号)
+#
+# IMPORTANT: Never commit real API keys to git.
+# Use environment variables or a local .env file.
+
+# ============================================================
+# API-BASED PUBLISHERS
+# ============================================================
+
+juejin:
+  enabled: false
+  # access_token: "${JUEGIN_TOKEN}"  # Set via env var
+  publish_as_draft: true  # Set to false to publish immediately
+
+devto:
+  enabled: true
+  api_key: "${DEVTO_API_KEY}"  # Set via env var: export DEVTO_API_KEY="your_key"
+  publish_as_draft: true
+
+medium:
+  enabled: false
+  # integration_token: "${MEDIUM_TOKEN}"
+  # author_id: ""
+
+# ============================================================
+# BROWSER-BASED PUBLISHERS (no API available)
+# ============================================================
+# These use Playwright browser automation. On first run, a
+# browser window opens for manual login. Cookies are saved for
+# subsequent headless runs.
+
+csdn:
+  enabled: false
+  # CSDN Open API has been discontinued. Uses browser automation.
+  # On first run, a browser will open for CSDN passport login.
+  publish_as_draft: true        # Save as draft (safer for automation)
+  headless: false                # Set to false to see the browser
+  # cookie_dir: "data/cookies"  # Where login cookies are stored
+
+wechat_mp:
+  enabled: false
+  # 微信公众号 uses QR code scan login.
+  # 启用方式：
+  #   1. enabled: true, headless: false
+  #   2. 运行 --publish，浏览器会打开 mp.weixin.qq.com
+  #   3. 用微信扫码登录你的公众号
+  #   4. Cookie 保存后后续可 headless: true
+  publish_as_draft: true
+  headless: false               # 首次必须 false，扫码登录后才能开 headless
+  # author: "Your Name"         # 文章作者名
+  # cookie_dir: "data/cookies"
+
+# ============================================================
+# MANUAL / FUTURE PLATFORMS
+# ============================================================
+
+zhihu:
+  enabled: false
+  # 知乎: No public API for article publishing.
+  # Option 1: Browser automation (similar to CSDN approach)
+  # Option 2: Manual publish via zhuanlan.zhihu.com

@@ -1,0 +1,327 @@
+"""
+Daily Pipeline — Full daily publishing workflow.
+
+This is the main entry point that orchestrates the entire multi-agent pipeline:
+  Capture → Analyze → Write → [Judge ↻] → Adapt → Publish
+
+Usage:
+    python -m workflows.daily_pipeline                          # today, dry run
+    python -m workflows.daily_pipeline --date 2026-06-09        # specific date
+    python -m workflows.daily_pipeline --publish                 # live publish
+    python -m workflows.daily_pipeline --no-judge                # skip quality check
+"""
+
+import argparse
+import json
+import logging
+import os
+import sys
+from datetime import datetime
+
+# Add project root to path
+sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
+
+from core.observer import Observer
+from core.pipeline import PipelineOrchestrator, JudgeLoopPipeline
+
+from agents.capture_agent import CaptureAgent
+from agents.analyze_agent import AnalyzeAgent
+from agents.write_agent import WriteAgent
+from agents.judge_agent import JudgeAgent
+from agents.adapt_agent import AdaptAgent
+from agents.publish_agent import PublishAgent
+
+from tools.article_formatter import save_article
+from tools.publishers.devto import DevToPublisher
+from tools.publishers.juejin import JuejinPublisher
+from tools.publishers.csdn_browser import CsdNBrowserPublisher
+from tools.publishers.wechat_browser import WeChatBrowserPublisher
+
+logger = logging.getLogger(__name__)
+
+
+def build_pipeline(
+    observer: Observer,
+    claude_client: any,
+    publishers: list | None = None,
+    enable_judge: bool = True,
+    publish_mode: bool = False,
+    enabled_platforms: list[str] | None = None,
+):
+    """Build the full multi-agent pipeline."""
+
+    # Create agents (each demonstrates a distinct pattern)
+    capture_agent = CaptureAgent(observer=observer, claude_client=claude_client)
+    analyze_agent = AnalyzeAgent(observer=observer, claude_client=claude_client)
+
+    if enable_judge:
+        # Judge loop: Write → Judge ↻ (self-correction loop)
+        write_agent = WriteAgent(observer=observer, claude_client=claude_client)
+        judge_agent = JudgeAgent(observer=observer, claude_client=claude_client)
+        write_stage = JudgeLoopPipeline(
+            write_agent=write_agent,
+            judge_agent=judge_agent,
+            observer=observer,
+            max_iterations=3,
+            pass_threshold=70,
+        )
+    else:
+        write_stage = WriteAgent(observer=observer, claude_client=claude_client)
+
+    adapt_agent = AdaptAgent(observer=observer, claude_client=claude_client)
+
+    # Publish agent with platform connectors
+    publish_agent = PublishAgent(
+        publishers=publishers or [],
+        observer=observer,
+        claude_client=claude_client,
+    )
+
+    # Build the pipeline
+    orchestrator = PipelineOrchestrator(observer=observer)
+
+    orchestrator.add_stage("capture", capture_agent)
+    orchestrator.add_stage("analyze", analyze_agent)
+
+    if enable_judge:
+        orchestrator.add_stage(
+            "write_judge_loop",
+            write_stage,
+            # Transform: feed capture+analyze output into write stage
+            input_transform=lambda data: {
+                "date": data.get("date", ""),
+                "day_summary": data.get("day_summary", ""),
+                "highlights": data.get("highlights", []),
+                "architecture_decisions": data.get("architecture_decisions", []),
+                "key_insights": data.get("key_insights", []),
+                "tags": data.get("tags", []),
+                "themes": data.get("themes", []),
+            },
+            output_transform=lambda data: data if isinstance(data, dict) else {"article": data[0] if isinstance(data, tuple) else data},
+        )
+    else:
+        orchestrator.add_stage(
+            "write",
+            write_stage,
+            output_transform=lambda data: _save_and_return(data),
+        )
+
+    # Set up platform targets — only include enabled platforms
+    all_platforms = {
+        "juejin": {"name": "juejin", "language": "zh", "audience": "Chinese developers (掘金)"},
+        "devto": {"name": "devto", "language": "en", "audience": "Global developers (Dev.to)"},
+        "csdn": {"name": "csdn", "language": "zh", "audience": "Chinese developers (CSDN)"},
+        "wechat_mp": {"name": "wechat_mp", "language": "zh", "audience": "Chinese mobile readers (微信)"},
+    }
+    enabled_platforms = set(enabled_platforms or [])
+    target_platforms = [v for k, v in all_platforms.items() if k in enabled_platforms or not enabled_platforms]
+
+    orchestrator.add_stage(
+        "adapt",
+        adapt_agent,
+        input_transform=lambda data: {
+            "article": _extract_article(data),
+            "platforms": target_platforms,
+        },
+        critical=False,  # Adapt can fail without aborting
+    )
+
+    orchestrator.add_stage(
+        "publish",
+        publish_agent,
+        input_transform=lambda data: {
+            "versions": data.get("versions", []) if isinstance(data, dict) else data,
+            "publish": publish_mode,
+        },
+        critical=False,  # Publish failure doesn't mean pipeline failure
+    )
+
+    return orchestrator
+
+
+def _save_and_return(article: dict) -> dict:
+    """Save article to disk and return it."""
+    try:
+        path = save_article(article)
+        logger.info(f"Article saved: {path}")
+    except Exception as e:
+        logger.warning(f"Could not save article: {e}")
+    return article
+
+
+def _extract_article(data: dict) -> dict:
+    """Extract article from various pipeline stage output formats."""
+    if isinstance(data, dict):
+        # Direct article output
+        if "title" in data and "content" in data:
+            return data
+        # Nested under 'article' key
+        if "article" in data:
+            return data["article"]
+        # Pipeline result wrapper
+        if "final_output" in data:
+            return _extract_article(data["final_output"])
+    return data
+
+
+def main():
+    parser = argparse.ArgumentParser(description="Agent Daily Publisher")
+    parser.add_argument("--date", type=str, default=datetime.now().strftime("%Y-%m-%d"),
+                       help="Date to process (YYYY-MM-DD)")
+    parser.add_argument("--publish", action="store_true",
+                       help="Actually publish to platforms (default: dry run)")
+    parser.add_argument("--no-judge", action="store_true",
+                       help="Skip quality evaluation loop")
+    parser.add_argument("--verbose", "-v", action="store_true",
+                       help="Verbose output")
+    args = parser.parse_args()
+
+    # Setup logging
+    log_level = logging.DEBUG if args.verbose else logging.INFO
+    logging.basicConfig(level=log_level, format="%(levelname)s | %(message)s")
+
+    print(f"\n{'='*60}")
+    print(f"  Agent Daily Publisher")
+    print(f"  Date: {args.date}")
+    print(f"  Mode: {'LIVE' if args.publish else 'DRY RUN'}")
+    print(f"  Judge: {'OFF' if args.no_judge else 'ON'}")
+    print(f"{'='*60}\n")
+
+    # Initialize
+    observer = Observer()
+
+    # Initialize Claude client
+    try:
+        from anthropic import Anthropic
+        claude = Anthropic()
+        print("  ✓ Claude API client initialized")
+    except ImportError:
+        print("  ! anthropic SDK not installed. Install with: pip install anthropic")
+        print("  ! Using mock client for testing\n")
+        claude = _MockClaude()
+
+    # Configure publishers
+    publishers = []
+    enabled_platforms = set()
+    config_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "config")
+
+    # Load platform config
+    platforms_config = {}
+    platforms_path = os.path.join(config_dir, "platforms.yaml")
+    if os.path.exists(platforms_path):
+        try:
+            import yaml
+            with open(platforms_path, "r") as f:
+                platforms_config = yaml.safe_load(f) or {}
+        except Exception:
+            pass
+
+    devto_config = platforms_config.get("devto", {})
+    juejin_config = platforms_config.get("juejin", {})
+
+    if devto_config.get("enabled", False):
+        publishers.append(DevToPublisher(devto_config))
+        enabled_platforms.add("devto")
+        print("  ✓ Dev.to publisher configured")
+    else:
+        print("  - Dev.to publisher: disabled (configure in config/platforms.yaml)")
+
+    if juejin_config.get("enabled", False):
+        publishers.append(JuejinPublisher(juejin_config))
+        enabled_platforms.add("juejin")
+        print("  ✓ Juejin publisher configured")
+    else:
+        print("  - Juejin publisher: disabled (configure in config/platforms.yaml)")
+
+    # Browser-based publishers (no API available)
+    csdn_config = platforms_config.get("csdn", {})
+    if csdn_config.get("enabled", False):
+        publishers.append(CsdNBrowserPublisher(csdn_config))
+        enabled_platforms.add("csdn")
+        print("  ✓ CSDN browser publisher configured")
+    else:
+        print("  - CSDN publisher: disabled (browser mode, configure in config/platforms.yaml)")
+
+    wechat_config = platforms_config.get("wechat_mp", {})
+    if wechat_config.get("enabled", False):
+        publishers.append(WeChatBrowserPublisher(wechat_config))
+        enabled_platforms.add("wechat_mp")
+        print("  ✓ WeChat MP browser publisher configured")
+    else:
+        print("  - WeChat MP publisher: disabled (browser mode, configure in config/platforms.yaml)")
+
+    print()
+
+    # Build and run pipeline
+    orchestrator = build_pipeline(
+        observer=observer,
+        claude_client=claude,
+        publishers=publishers,
+        enable_judge=not args.no_judge,
+        publish_mode=args.publish,
+        enabled_platforms=list(enabled_platforms),
+    )
+
+    # Run
+    print("  🚀 Running pipeline...\n")
+    result = orchestrator.run({"date": args.date})
+
+    # Output results
+    print(f"\n{'='*60}")
+    print(f"  Pipeline {'SUCCEEDED' if result.success else 'COMPLETED WITH ERRORS'}")
+    print(f"  Duration: {result.duration:.1f}s")
+    print(f"{'='*60}\n")
+
+    for stage in result.stages:
+        status = "✓" if not stage.get("error") else "✗"
+        print(f"  {status} {stage['name']}: {stage.get('duration', 0):.1f}s")
+        if stage.get("error"):
+            print(f"    Error: {stage['error']}")
+
+    # Print publish summary
+    if result.final_output and isinstance(result.final_output, dict):
+        summary = result.final_output.get("summary", "")
+        if summary:
+            print(f"\n  📋 Summary: {summary}")
+
+        results_list = result.final_output.get("results", [])
+        if results_list:
+            print(f"\n  📤 Publishing Results:")
+            for r in results_list:
+                status = "✓" if r.get("success") else "✗"
+                url = r.get("url", "")
+                error = r.get("error", "")
+                print(f"    {status} {r['platform']}: {url or error}")
+
+    # Save observer log
+    print(f"\n  💾 Trace log saved to data/traces/")
+
+    return result
+
+
+class _MockClaude:
+    """Minimal mock for testing without API keys."""
+
+    class Messages:
+        def create(self, **kwargs):
+            class MockResponse:
+                class Content:
+                    type = "text"
+                    text = '{"status": "mock", "message": "This is a mock response. Configure ANTHROPIC_API_KEY for real output."}'
+
+                class Usage:
+                    input_tokens = 0
+                    output_tokens = 0
+
+                def __init__(self):
+                    self.content = [self.Content()]
+                    self.usage = self.Usage()
+
+            return MockResponse()
+
+    def __init__(self):
+        self.messages = self.Messages()
+
+
+if __name__ == "__main__":
+    main()

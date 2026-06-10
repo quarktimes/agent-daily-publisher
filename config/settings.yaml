@@ -1,0 +1,34 @@
+# Agent Daily Publisher — Main Configuration
+
+# General settings
+general:
+  timezone: "Asia/Shanghai"
+  language: "zh-CN"
+  daily_publish_time: "18:00"
+  max_retries: 3
+
+# Pipeline settings
+pipeline:
+  enable_judge: true
+  judge_pass_threshold: 70
+  judge_max_iterations: 3
+  enable_adapt: true
+
+# Claude API
+claude:
+  model: "claude-sonnet-4-6"
+  max_tokens: 4096
+  temperature: 0.7
+
+# Claude Code log sources
+sources:
+  history_path: "~/.claude/history.jsonl"
+  projects_dir: "~/.claude/projects"
+  git_enabled: true
+
+# Output
+output:
+  articles_dir: "data/articles"
+  sessions_dir: "data/sessions"
+  traces_dir: "data/traces"
+  published_dir: "data/published"
