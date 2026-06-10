@@ -116,6 +116,21 @@ Writing guidelines:
 Platform: universal (will be adapted per-platform later)
 Language: Chinese (中文) — use a mix of Chinese and technical English terms naturally
 
+## PRIVACY RULES — STRICTLY ENFORCED
+You MUST NOT include any of the following:
+- API keys, tokens, passwords, or any credential strings
+- Database connection URLs (jdbc:, mysql://, redis://, etc.)
+- Internal IP addresses or hostnames
+- Configuration values with secrets (spring.datasource.password, etc.)
+- Private keys or certificates
+If the source material contains any of these, OMIT them or describe generically:
+  ❌ "spring.datasource.password=xxxx"
+  ✅ "database credentials were configured"
+  ❌ "jdbc:mysql://10.0.0.5:3306/prod"
+  ✅ "MySQL production database"
+  ❌ "api_key=8CKv..."
+  ✅ "API key was set via environment variable"
+
 Return your response as a JSON object with:
   - title: catchy, descriptive title (include date)
   - content: the full markdown article

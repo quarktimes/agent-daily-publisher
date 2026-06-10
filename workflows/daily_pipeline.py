@@ -32,6 +32,11 @@ from agents.adapt_agent import AdaptAgent
 from agents.publish_agent import PublishAgent
 
 from tools.article_formatter import save_article
+from tools.privacy_filter import (
+    sanitize_input,
+    validate_article_safe,
+    add_privacy_instruction_to_prompt,
+)
 from tools.publishers.devto import DevToPublisher
 from tools.publishers.juejin import JuejinPublisher
 from tools.publishers.csdn_browser import CsdNBrowserPublisher
@@ -81,7 +86,12 @@ def build_pipeline(
     orchestrator = PipelineOrchestrator(observer=observer)
 
     orchestrator.add_stage("capture", capture_agent)
-    orchestrator.add_stage("analyze", analyze_agent)
+    orchestrator.add_stage(
+        "analyze",
+        analyze_agent,
+        # Stage 1 — Sanitize session data before LLM sees it
+        input_transform=lambda data: sanitize_input(data),
+    )
 
     if enable_judge:
         orchestrator.add_stage(
@@ -97,13 +107,14 @@ def build_pipeline(
                 "tags": data.get("tags", []),
                 "themes": data.get("themes", []),
             },
-            output_transform=lambda data: data if isinstance(data, dict) else {"article": data[0] if isinstance(data, tuple) else data},
+            # Stage 2 — Validate article for privacy before adapt/publish
+            output_transform=lambda data: _validate_and_save(data),
         )
     else:
         orchestrator.add_stage(
             "write",
             write_stage,
-            output_transform=lambda data: _save_and_return(data),
+            output_transform=lambda data: _validate_and_save(data),
         )
 
     # Set up platform targets — only include enabled platforms
@@ -139,13 +150,29 @@ def build_pipeline(
     return orchestrator
 
 
-def _save_and_return(article: dict) -> dict:
-    """Save article to disk and return it."""
+def _validate_and_save(article: dict) -> dict:
+    """Validate article for privacy, save, and return.
+
+    Stage 2 privacy check — runs AFTER generation, BEFORE publishing.
+    If secrets are detected, the article is flagged but not blocked
+    (the pipeline continues; the check result is logged for review).
+    """
+    # Save article regardless
     try:
         path = save_article(article)
         logger.info(f"Article saved: {path}")
     except Exception as e:
         logger.warning(f"Could not save article: {e}")
+
+    # Privacy validation
+    is_safe, findings = validate_article_safe(article)
+    if not is_safe:
+        logger.warning(f"⚠️  Article contains potential secrets — {len(findings)} findings")
+        for f in findings:
+            logger.warning(f"  [{f['field']}] {f['snippet']}")
+    else:
+        logger.info("✓ Article privacy check passed")
+
     return article
 
 

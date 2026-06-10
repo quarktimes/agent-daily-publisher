@@ -6,7 +6,12 @@ __pycache__/
 venv/
 
 # Data (generated at runtime)
-data/*
+data/sessions/*        # Raw Claude Code sessions (may contain private code)
+data/cookies/*         # Platform login cookies (credentials)
+data/debug/*           # Debug screenshots (may contain account pages)
+data/traces/*          # Observability traces (LLM prompts/outputs)
+data/logs/*            # Runtime logs
+data/memory/*          # Agent memory
 !data/**/.gitkeep
 
 # IDE
