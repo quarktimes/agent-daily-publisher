@@ -118,7 +118,7 @@ def build_pipeline(
                 "themes": data.get("themes", []),
             },
             # Stage 2 — Validate article for privacy before adapt/publish
-            output_transform=lambda data: _validate_and_save(data),
+            output_transform=lambda data: _validate_and_save(data[0] if isinstance(data, tuple) else data),
         )
     else:
         orchestrator.add_stage(

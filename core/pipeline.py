@@ -177,7 +177,7 @@ class JudgeLoopPipeline:
         judge_agent: BaseAgent,
         observer: Observer | None = None,
         max_iterations: int = 3,
-        pass_threshold: int = 70,
+        pass_threshold: int = 80,
     ):
         self.write_agent = write_agent
         self.judge_agent = judge_agent
@@ -227,12 +227,15 @@ class JudgeLoopPipeline:
 
             # Check if passed
             if verdict.get("verdict") == "pass" and verdict.get("score", 0) >= self.pass_threshold:
-                self.observer.log(f"Article passed judge with score {verdict.get('score')}")
+                self.observer.log(f"✅ Article passed judge with score {verdict.get('score')}")
                 return article, history
 
             if iteration < self.max_iterations - 1:
-                self.observer.log(f"Article scored {verdict.get('score')}, revising...")
+                self.observer.log(f"Article scored {verdict.get('score')}/{self.pass_threshold}, revising...")
 
-        # Return last attempt even if it didn't pass
-        self.observer.log(f"Max iterations ({self.max_iterations}) reached, returning last version")
-        return article, history
+        # Raise if never passed
+        last_score = history[-1].get("score", 0) if history else 0
+        raise ValueError(
+            f"Article failed quality gate: best score {last_score}/{self.pass_threshold} "
+            f"after {self.max_iterations} iterations. Feedback: {history[-1].get('feedback', []) if history else 'N/A'}"
+        )
