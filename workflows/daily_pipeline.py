@@ -322,21 +322,27 @@ def _publish_interview(date: str, publishers: list) -> None:
                     break
             body = parts[2].strip()
 
-    # Find Dev.to publisher
+    # Publish to Dev.to
     devto = next((p for p in publishers if p.name == "devto"), None)
-    if not devto or not devto.validate_config():
-        logger.debug("Dev.to publisher not available for interview")
-        return
+    if devto and devto.validate_config():
+        result = devto.publish(
+            title=title,
+            content=body,
+            tags=["ai", "interview", "career", "agents"],
+        )
+        if result.success:
+            logger.info(f"📤 Interview published to Dev.to: {result.url}")
 
-    result = devto.publish(
-        title=title,
-        content=body,
-        tags=["ai", "interview", "career", "agents"],
-    )
-    if result.success:
-        logger.info(f"📤 Interview published to Dev.to: {result.url}")
-    else:
-        logger.warning(f"Interview publish failed: {result.error}")
+    # Publish to WeChat MP (as draft)
+    wechat = next((p for p in publishers if p.name == "wechat_mp"), None)
+    if wechat and wechat.validate_config():
+        result = wechat.publish(
+            title=f"AI面试题 | {date}",
+            content=body,
+            tags=["AI", "面试", "技术成长"],
+        )
+        if result.success:
+            logger.info(f"📤 Interview draft saved to WeChat MP: {result.url}")
 
 
 def _extract_article(data: dict) -> dict:
