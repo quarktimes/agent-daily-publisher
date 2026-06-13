@@ -409,7 +409,31 @@ def main():
 
     print()
 
-    # Build and run pipeline
+    # Build and run pipeline (with resume support)
+    from core.state import PipelineState
+    pipeline_stash = {}
+    from core.state import PipelineState
+    pipeline_state = PipelineState(args.date)
+
+    # Check if we can resume from a partial run
+    resume_from = None
+    completed = pipeline_state._state.get("completed_stages", [])
+    errors = pipeline_state._state.get("errors", {})
+
+    # If publish already succeeded for some platforms, skip
+    if pipeline_state.is_completed("publish"):
+        pub_results = pipeline_state.get_publish_results()
+        if any(r.get("success") for r in pub_results.values()):
+            print(f"  ⏭️  Pipeline already completed for {args.date}")
+            print(f"  {pipeline_state.summary()}")
+            return
+
+    # If there are partial completions, we can resume
+    if completed or errors:
+        print(f"  🔄 Resuming pipeline for {args.date}")
+        print(f"     Already done: {completed}")
+        print(f"     Failed: {list(errors.keys())}")
+
     pipeline_stash = {}
     orchestrator, pipeline_stash = build_pipeline(
         observer=observer,
@@ -423,7 +447,7 @@ def main():
 
     # Run
     print("  🚀 Running pipeline...\n")
-    result = orchestrator.run({"date": args.date})
+    result = orchestrator.run({"date": args.date}, pipeline_state=pipeline_state)
 
     # Output results
     print(f"\n{'='*60}")

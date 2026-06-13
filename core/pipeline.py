@@ -86,9 +86,12 @@ class PipelineOrchestrator:
             critical=critical,
         ))
 
-    def run(self, initial_input: Any) -> PipelineResult:
+    def run(self, initial_input: Any, pipeline_state: Any | None = None) -> PipelineResult:
         """
-        Execute the pipeline sequentially.
+        Execute the pipeline sequentially with optional resume support.
+
+        If pipeline_state is provided, completed stages are skipped and
+        their cached outputs are loaded. Only uncompleted/failed stages run.
 
         Each stage's output is passed as input to the next stage,
         with optional transforms applied between stages.
@@ -108,6 +111,20 @@ class PipelineOrchestrator:
                 "retries": 0,
             }
 
+            # Resume: skip if this stage already completed
+            if pipeline_state and pipeline_state.is_completed(stage.name):
+                cached = pipeline_state.get_output(stage.name)
+                if cached is not None:
+                    current_input = cached
+                    stage_record["duration"] = 0
+                    stage_record["note"] = "resumed from cache"
+                    self.observer.log(f"Stage '{stage.name}' → skipped (cached)")
+                    result.stages.append(stage_record)
+                    continue
+                # Cached output missing — re-run
+                pipeline_state.fail_stage(stage.name, "cached output missing")
+                self.observer.log(f"Stage '{stage.name}' → cache miss, re-running")
+
             try:
                 # Apply input transform if specified
                 if stage.input_transform:
@@ -123,15 +140,31 @@ class PipelineOrchestrator:
                 current_input = agent_output
                 stage_record["duration"] = round(time.perf_counter() - stage_start, 3)
                 self.observer.log(f"Stage '{stage.name}' completed in {stage_record['duration']}s")
-
-                stage_record["duration"] = round(time.perf_counter() - stage_start, 3)
                 result.stages.append(stage_record)
+                if pipeline_state:
+                    # For publish stage, only mark complete if any platform succeeded
+                    if stage.name == "publish":
+                        pub_results = agent_output.get("results", []) if isinstance(agent_output, dict) else []
+                        any_ok = any(r.get("success") for r in pub_results)
+                        if any_ok:
+                            pipeline_state.complete_stage(stage.name, agent_output)
+                            for r in pub_results:
+                                pipeline_state.record_publish_result(
+                                    r.get("platform", "?"),
+                                    r.get("success", False),
+                                    r.get("url", ""),
+                                    r.get("error", ""),
+                                )
+                    else:
+                        pipeline_state.complete_stage(stage.name, agent_output)
 
             except SchemaValidationError as e:
                 stage_record["error"] = f"Schema validation failed: {e}"
                 stage_record["duration"] = round(time.perf_counter() - stage_start, 3)
                 self.observer.log(f"Stage '{stage.name}' schema validation failed")
                 result.stages.append(stage_record)
+                if pipeline_state:
+                    pipeline_state.fail_stage(stage.name, str(e))
                 if stage.critical:
                     self.observer.log(f"Stage '{stage.name}' is critical — aborting pipeline")
                     result.success = False
@@ -142,6 +175,8 @@ class PipelineOrchestrator:
                 stage_record["duration"] = round(time.perf_counter() - stage_start, 3)
                 self.observer.log(f"Stage '{stage.name}' failed: {e}")
                 result.stages.append(stage_record)
+                if pipeline_state:
+                    pipeline_state.fail_stage(stage.name, str(e))
                 if stage.critical:
                     self.observer.log(f"Stage '{stage.name}' is critical — aborting pipeline")
                     result.success = False
