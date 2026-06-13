@@ -294,6 +294,62 @@ def _save_and_pass(data: dict) -> dict:
     return data  # unchanged — passes through for next stage
 
 
+    """Post-process code blocks: fix indentation, missing keywords, spacing."""
+    import re
+
+    def _fix_block(match):
+        lang = match.group(1) or ""
+        code = match.group(2)
+        # Fix missing 'catch' before '('
+        code = re.sub(r'(?<!\w)(\s*)\((\w+\s+\w+\s*)\)\s*\{', r'\1catch (\2) {', code)
+        # Fix inconsistent indentation (normalize to 4 spaces)
+        lines = code.split("\n")
+        fixed = []
+        for line in lines:
+            # Replace tabs with spaces
+            line = line.replace("\t", "    ")
+            # Remove trailing whitespace
+            line = line.rstrip()
+            fixed.append(line)
+        # Remove leading/trailing empty lines
+        while fixed and not fixed[0].strip():
+            fixed.pop(0)
+        while fixed and not fixed[-1].strip():
+            fixed.pop()
+        # Ensure code blocks have consistent newlines
+        result = "\n".join(fixed)
+        return f"```{lang}\n{result}\n```"
+
+    # Find and fix all code blocks
+    result = re.sub(r'```(\w*)\n(.*?)```', _fix_block, text, flags=re.DOTALL)
+    return result
+
+
+def _clean_code_blocks(text: str) -> str:
+    """Post-process code blocks: fix common formatting issues."""
+    import re
+
+    def _fix_block(match):
+        lang = match.group(1) or ""
+        code = match.group(2)
+        # Fix missing 'catch' before '('
+        code = re.sub(r'(?<!\w)(\s*)\((\w+\s+\w+\s*)\)\s*\{', r'\1catch (\2) {', code)
+        # Normalize indentation
+        lines = code.split("\n")
+        fixed = []
+        for line in lines:
+            line = line.replace("\t", "    ")
+            line = line.rstrip()
+            fixed.append(line)
+        while fixed and not fixed[0].strip():
+            fixed.pop(0)
+        while fixed and not fixed[-1].strip():
+            fixed.pop()
+        return "```" + lang + "\n" + "\n".join(fixed) + "\n```"
+
+    return re.sub(r'```(\w*)\n(.*?)```', _fix_block, text, flags=re.DOTALL)
+
+
 def _publish_interview(date: str, publishers: list) -> None:
     """Publish interview questions to Dev.to as a separate article."""
     import shutil
@@ -321,6 +377,9 @@ def _publish_interview(date: str, publishers: list) -> None:
                     title = line.replace("title:", "").strip().strip('"')
                     break
             body = parts[2].strip()
+
+    # Clean up code formatting before publishing
+    body = _clean_code_blocks(body)
 
     # Publish to Dev.to
     devto = next((p for p in publishers if p.name == "devto"), None)
