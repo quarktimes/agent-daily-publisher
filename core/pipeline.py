@@ -178,12 +178,14 @@ class JudgeLoopPipeline:
         observer: Observer | None = None,
         max_iterations: int = 3,
         pass_threshold: int = 80,
+        experience_store: Any = None,
     ):
         self.write_agent = write_agent
         self.judge_agent = judge_agent
         self.observer = observer or Observer()
         self.max_iterations = max_iterations
         self.pass_threshold = pass_threshold
+        self.experience_store = experience_store
 
     def run(self, input_data: Any) -> tuple[dict, list[dict]]:
         """
@@ -197,15 +199,25 @@ class JudgeLoopPipeline:
         for iteration in range(self.max_iterations):
             self.observer.log(f"Judge loop iteration {iteration + 1}/{self.max_iterations}")
 
-            # Add feedback context on retries
+            # Inject experience context (past high-scoring patterns)
+            experience_context = ""
+            if self.experience_store and iteration == 0:
+                try:
+                    experience_context = self.experience_store.get_context_for_writer()
+                    if experience_context:
+                        self.observer.log(f"Experience store: injected {len(experience_context)} chars of past patterns")
+                except Exception as e:
+                    self.observer.log(f"Experience store unavailable: {e}")
+                    experience_context = ""
+
+            # Build enriched input
+            enriched_input = {
+                **input_data,
+                "iteration": iteration + 1,
+                "experience_context": experience_context,
+            }
             if iteration > 0:
-                enriched_input = {
-                    **input_data,
-                    "previous_feedback": history[-1],
-                    "iteration": iteration + 1,
-                }
-            else:
-                enriched_input = {**input_data, "iteration": 1}
+                enriched_input["previous_feedback"] = history[-1]
 
             # Write
             article = self.write_agent.run(enriched_input)
@@ -226,6 +238,23 @@ class JudgeLoopPipeline:
             })
 
             # Check if passed
+            # Record experience
+            if self.experience_store:
+                try:
+                    self.experience_store.record(
+                        date=input_data.get("date", ""),
+                        tags=input_data.get("tags", []),
+                        score=verdict.get("score", 0),
+                        dimensions=verdict.get("dimensions", {}),
+                        feedback=verdict.get("feedback", []),
+                        verdict=verdict.get("verdict", "unknown"),
+                        article_title=article.get("title", ""),
+                        article_snippet=article.get("content", ""),
+                        iteration=iteration + 1,
+                    )
+                except Exception:
+                    pass
+
             if verdict.get("verdict") == "pass" and verdict.get("score", 0) >= self.pass_threshold:
                 self.observer.log(f"✅ Article passed judge with score {verdict.get('score')}")
                 return article, history

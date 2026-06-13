@@ -72,12 +72,14 @@ def build_pipeline(
         # Judge loop: Write → Judge ↻ (self-correction loop)
         write_agent = WriteAgent(observer=observer, claude_client=claude_client)
         judge_agent = JudgeAgent(observer=observer, claude_client=claude_client)
+        from tools.experience_store import ExperienceStore
         write_stage = JudgeLoopPipeline(
             write_agent=write_agent,
             judge_agent=judge_agent,
             observer=observer,
             max_iterations=3,
-            pass_threshold=70,
+            pass_threshold=80,
+            experience_store=ExperienceStore(),
         )
     else:
         write_stage = WriteAgent(observer=observer, claude_client=claude_client)

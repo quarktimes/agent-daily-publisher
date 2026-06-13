@@ -84,7 +84,7 @@ knows the trade-offs firsthand.
 
 Date: {date}
 {feedback_section}
-
+{input_data.get("experience_context", "")}
 ---
 
 ## QUALITY BAR — Read this before writing
@@ -103,6 +103,23 @@ At LEAST 2 of these MUST appear:
 At LEAST 2 code blocks showing:
   - Real implementation patterns (not pseudo-code)
   - Before/after comparison where applicable
+
+### Scoring Criteria — Your article will be judged on these
+
+A Judge Agent will score your article 0-100. You must pass >=80 to be published.
+Know exactly what it's looking for:
+
+| Dimension | Weight | To get >=90                                       | To get <70                                      |
+|-----------|--------|--------------------------------------------------|------------------------------------------------|
+| technical_accuracy | high | Code correct, claims precise, trade-offs accurate | Factual errors, broken code, misleading claims |
+| depth | high | Root cause, trade-offs, production considerations, metrics | Surface-level, describes WHAT not WHY |
+| engagement | med | Compelling narrative, real engineer voice, "learned something" | Dry, generic, textbook-like |
+| structure | med | Clear sections, logical flow, diagrams + code balanced | Disorganized, missing key sections, no diagrams |
+
+**To pass >=80, BOTH accuracy + depth must be >=70.** Depth is the hardest — anchor every section in specifics:
+  - "Reduced P99 from 2.3s to 420ms" (not "improved performance")
+  - "Chose ReAct over Plan-and-Execute because..." (not "used ReAct")
+  - Include at least one architecture trade-off table
 
 ### Knowledge areas to connect to (when relevant)
 
