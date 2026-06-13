@@ -416,12 +416,11 @@ def main():
     pipeline_state = PipelineState(args.date)
 
     # Check if we can resume from a partial run
-    resume_from = None
     completed = pipeline_state._state.get("completed_stages", [])
     errors = pipeline_state._state.get("errors", {})
 
-    # If publish already succeeded for some platforms, skip
-    if pipeline_state.is_completed("publish"):
+    # If everything already done (including interview), skip entirely
+    if pipeline_state.is_completed("publish") and pipeline_state.is_completed("interview"):
         pub_results = pipeline_state.get_publish_results()
         if any(r.get("success") for r in pub_results.values()):
             print(f"  ⏭️  Pipeline already completed for {args.date}")
@@ -479,8 +478,8 @@ def main():
     # Save observer log
     print(f"\n  💾 Trace log saved to data/traces/")
 
-    # Run interview question generator (uses real analyze data from stash)
-    if result.success:
+    # Run interview question generator (cached via pipeline_state)
+    if result.success and not pipeline_state.is_completed("interview"):
         try:
             from agents.interview_agent import InterviewAgent
             ia = InterviewAgent(observer=observer, claude_client=claude)
@@ -496,9 +495,12 @@ def main():
             print(f"\n  🎯 Generating interview questions from {len(interview_data['highlights'])} highlights...")
             interview_result = ia.run(interview_data)
             _save_interview(interview_result)
+            pipeline_state.complete_stage("interview", {"count": interview_result.get("question_count", 0)})
             print(f"  ✓ Interview questions: {interview_result.get('question_count', 0)} questions")
         except Exception as e:
             print(f"  - Interview questions skipped: {e}")
+    elif pipeline_state.is_completed("interview"):
+        print(f"  ⏭️  Interview questions: skipped (cached)")
 
     return result
 
