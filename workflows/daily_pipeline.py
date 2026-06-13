@@ -227,7 +227,7 @@ def _sync_to_obsidian(article: dict) -> None:
     content = article.get("content", "")
     frontmatter = f"""---
 type: daily-dev-log
-date: {datetime.now().strftime("%Y-%m-%d")}
+date: "{datetime.now().strftime("%Y-%m-%d")}"
 tags: [{', '.join(article.get('tags', ['dev']))}]
 source: agent-daily-publisher
 ---
@@ -258,7 +258,7 @@ def _save_interview(data: dict) -> dict:
 
     frontmatter = f"""---
 title: {title}
-date: {datetime.now().strftime('%Y-%m-%d')}
+date: "{datetime.now().strftime('%Y-%m-%d')}"
 type: interview-questions
 question_count: {q_count}
 difficulty: {data.get('difficulty_levels', [])}
@@ -292,6 +292,51 @@ def _save_and_pass(data: dict) -> dict:
     except Exception as e:
         logger.warning(f"Interview save failed (non-critical): {e}")
     return data  # unchanged — passes through for next stage
+
+
+def _publish_interview(date: str, publishers: list) -> None:
+    """Publish interview questions to Dev.to as a separate article."""
+    import shutil
+    import glob
+    from pathlib import Path
+
+    # Find the latest interview file for this date
+    interview_dir = Path(__file__).parent.parent / "data" / "interviews"
+    pattern = f"{date}_面试题_*"
+    files = sorted(interview_dir.glob(pattern))
+    if not files:
+        logger.debug("No interview file found for publishing")
+        return
+
+    content = files[-1].read_text(encoding="utf-8")
+
+    # Strip frontmatter and extract title
+    body = content
+    title = f"AI Interview Questions - {date}"
+    if content.startswith("---"):
+        parts = content.split("---", 2)
+        if len(parts) >= 3:
+            for line in parts[1].split("\n"):
+                if line.startswith("title:"):
+                    title = line.replace("title:", "").strip().strip('"')
+                    break
+            body = parts[2].strip()
+
+    # Find Dev.to publisher
+    devto = next((p for p in publishers if p.name == "devto"), None)
+    if not devto or not devto.validate_config():
+        logger.debug("Dev.to publisher not available for interview")
+        return
+
+    result = devto.publish(
+        title=title,
+        content=body,
+        tags=["ai", "interview", "career", "agents"],
+    )
+    if result.success:
+        logger.info(f"📤 Interview published to Dev.to: {result.url}")
+    else:
+        logger.warning(f"Interview publish failed: {result.error}")
 
 
 def _extract_article(data: dict) -> dict:
@@ -425,6 +470,8 @@ def main():
         if any(r.get("success") for r in pub_results.values()):
             print(f"  ⏭️  Pipeline already completed for {args.date}")
             print(f"  {pipeline_state.summary()}")
+            # Still try to publish interview if it hasn't been published
+            _publish_interview(args.date, publishers)
             return
 
     # If there are partial completions, we can resume
@@ -479,28 +526,35 @@ def main():
     print(f"\n  💾 Trace log saved to data/traces/")
 
     # Run interview question generator (cached via pipeline_state)
-    if result.success and not pipeline_state.is_completed("interview"):
+    if result.success:
+        if not pipeline_state.is_completed("interview"):
+            try:
+                from agents.interview_agent import InterviewAgent
+                ia = InterviewAgent(observer=observer, claude_client=claude)
+                analyze_data = pipeline_stash.get("analyze", {})
+                interview_data = {
+                    "date": args.date,
+                    "day_summary": analyze_data.get("day_summary", ""),
+                    "highlights": analyze_data.get("highlights", []),
+                    "architecture_decisions": analyze_data.get("architecture_decisions", []),
+                    "key_insights": analyze_data.get("key_insights", []),
+                    "tags": analyze_data.get("tags", []),
+                }
+                print(f"\n  🎯 Generating interview questions from {len(interview_data['highlights'])} highlights...")
+                interview_result = ia.run(interview_data)
+                _save_interview(interview_result)
+                pipeline_state.complete_stage("interview", {"count": interview_result.get("question_count", 0)})
+                print(f"  ✓ Interview questions: {interview_result.get('question_count', 0)} questions")
+            except Exception as e:
+                print(f"  - Interview questions skipped: {e}")
+        else:
+            print(f"  ⏭️  Interview questions: skipped (cached)")
+
+        # Publish interview to Dev.to if there's a matching publisher
         try:
-            from agents.interview_agent import InterviewAgent
-            ia = InterviewAgent(observer=observer, claude_client=claude)
-            analyze_data = pipeline_stash.get("analyze", {})
-            interview_data = {
-                "date": args.date,
-                "day_summary": analyze_data.get("day_summary", ""),
-                "highlights": analyze_data.get("highlights", []),
-                "architecture_decisions": analyze_data.get("architecture_decisions", []),
-                "key_insights": analyze_data.get("key_insights", []),
-                "tags": analyze_data.get("tags", []),
-            }
-            print(f"\n  🎯 Generating interview questions from {len(interview_data['highlights'])} highlights...")
-            interview_result = ia.run(interview_data)
-            _save_interview(interview_result)
-            pipeline_state.complete_stage("interview", {"count": interview_result.get("question_count", 0)})
-            print(f"  ✓ Interview questions: {interview_result.get('question_count', 0)} questions")
+            _publish_interview(args.date, publishers)
         except Exception as e:
-            print(f"  - Interview questions skipped: {e}")
-    elif pipeline_state.is_completed("interview"):
-        print(f"  ⏭️  Interview questions: skipped (cached)")
+            print(f"  - Interview publish skipped: {e}")
 
     return result
 
