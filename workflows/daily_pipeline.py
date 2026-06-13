@@ -29,6 +29,7 @@ from agents.analyze_agent import AnalyzeAgent
 from agents.write_agent import WriteAgent
 from agents.judge_agent import JudgeAgent
 from agents.adapt_agent import AdaptAgent
+from agents.interview_agent import InterviewAgent
 from agents.publish_agent import PublishAgent
 
 from tools.article_formatter import save_article
@@ -174,7 +175,113 @@ def _validate_and_save(article: dict) -> dict:
     else:
         logger.info("✓ Article privacy check passed")
 
+    # Sync to Obsidian vault if configured
+    try:
+        _sync_to_obsidian(article)
+    except Exception as e:
+        logger.warning(f"Obsidian sync skipped: {e}")
+
     return article
+
+
+def _sync_to_obsidian(article: dict) -> None:
+    """Copy generated article to Obsidian vault if configured."""
+    import os
+    import shutil
+    from pathlib import Path
+
+    vault_path = None
+    # Try to read from settings
+    settings_path = os.path.join(os.path.dirname(__file__), "..", "config", "settings.yaml")
+    if os.path.exists(settings_path):
+        try:
+            import yaml
+            with open(settings_path, "r") as f:
+                settings = yaml.safe_load(f) or {}
+            vault = settings.get("output", {}).get("obsidian_vault", "")
+            if vault:
+                vault_path = os.path.expanduser(vault)
+        except Exception:
+            pass
+
+    if not vault_path or not os.path.isdir(vault_path):
+        logger.debug("Obsidian vault not configured or not found — skipping")
+        return
+
+    # Generate filename from title
+    title = article.get("title", "article")[:30]
+    safe_title = "".join(c if c.isalnum() or c in " _-" else "_" for c in title)
+    filename = f"日报_{safe_title}.md"
+
+    # Build content with Obsidian frontmatter
+    content = article.get("content", "")
+    frontmatter = f"""---
+type: daily-dev-log
+date: {datetime.now().strftime("%Y-%m-%d")}
+tags: [{', '.join(article.get('tags', ['dev']))}]
+source: agent-daily-publisher
+---
+
+"""
+    full_content = frontmatter + content
+
+    dest = Path(vault_path) / filename
+    with open(dest, "w", encoding="utf-8") as f:
+        f.write(full_content)
+    logger.info(f"📓 Synced to Obsidian: {dest}")
+
+
+def _save_interview(data: dict) -> dict:
+    """Save interview questions article to data/interviews/."""
+    from pathlib import Path
+
+    out_dir = Path(__file__).parent.parent / "data" / "interviews"
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    content = data.get("content", "")
+    title = data.get("title", f"面试题日报_{datetime.now().strftime('%Y-%m-%d')}")
+    summary = data.get("summary", "")
+    q_count = data.get("question_count", 0)
+
+    filename = f"{datetime.now().strftime('%Y-%m-%d')}_面试题_{q_count}道.md"
+    filepath = out_dir / filename
+
+    frontmatter = f"""---
+title: {title}
+date: {datetime.now().strftime('%Y-%m-%d')}
+type: interview-questions
+question_count: {q_count}
+difficulty: {data.get('difficulty_levels', [])}
+source: agent-daily-publisher
+---
+
+"""
+    with open(filepath, "w", encoding="utf-8") as f:
+        f.write(frontmatter + content)
+
+    logger.info(f"📝 Interview questions saved ({q_count}q): {filepath}")
+
+    # Also sync to Obsidian if configured
+    try:
+        _sync_to_obsidian({"title": title, "content": frontmatter + content, "tags": ["interview", "ai"]})
+    except Exception:
+        pass
+
+    return data
+
+
+def _save_and_pass(data: dict) -> dict:
+    """Save interview output and return the input unchanged for pipeline to continue.
+
+    The pipeline is sequential — interview output must not overwrite the article
+    that the adapt stage needs. This wrapper saves the interview result and
+    returns the dict as-is (adapt receives the original article data).
+    """
+    try:
+        _save_interview(data)
+    except Exception as e:
+        logger.warning(f"Interview save failed (non-critical): {e}")
+    return data  # unchanged — passes through for next stage
 
 
 def _extract_article(data: dict) -> dict:
@@ -335,6 +442,27 @@ def main():
 
     # Save observer log
     print(f"\n  💾 Trace log saved to data/traces/")
+
+    # Run interview question generator (separate from main pipeline)
+    if result.success:
+        try:
+            from agents.interview_agent import InterviewAgent
+            ia = InterviewAgent(observer=observer, claude_client=claude)
+            # Collect analysis data from pipeline result or re-capture
+            interview_data = {
+                "date": args.date,
+                "day_summary": result.final_output.get("summary", "") if isinstance(result.final_output, dict) else "",
+                "highlights": [],
+                "architecture_decisions": [],
+                "key_insights": [],
+                "tags": [],
+            }
+            print("\n  🎯 Generating interview questions...")
+            interview_result = ia.run(interview_data)
+            _save_interview(interview_result)
+            print(f"  ✓ Interview questions: {interview_result.get('question_count', 0)} questions")
+        except Exception as e:
+            print(f"  - Interview questions skipped: {e}")
 
     return result
 
