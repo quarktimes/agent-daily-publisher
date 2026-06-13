@@ -54,8 +54,15 @@ def build_pipeline(
     enable_judge: bool = True,
     publish_mode: bool = False,
     enabled_platforms: list[str] | None = None,
+    stash: dict | None = None,
 ):
-    """Build the full multi-agent pipeline."""
+    """Build the full multi-agent pipeline.
+
+    Args:
+        stash: mutable dict to capture intermediate outputs (e.g., analyze result)
+    """
+    if stash is None:
+        stash = {}
 
     # Create agents (each demonstrates a distinct pattern)
     capture_agent = CaptureAgent(observer=observer, claude_client=claude_client)
@@ -91,8 +98,9 @@ def build_pipeline(
     orchestrator.add_stage(
         "analyze",
         analyze_agent,
-        # Stage 1 — Sanitize session data before LLM sees it
         input_transform=lambda data: sanitize_input(data),
+        # Stash analyze output for interview agent
+        output_transform=lambda data, s=stash: (s.update({"analyze": data}) or data),
     )
 
     if enable_judge:
@@ -149,7 +157,7 @@ def build_pipeline(
         critical=False,  # Publish failure doesn't mean pipeline failure
     )
 
-    return orchestrator
+    return orchestrator, stash
 
 
 def _validate_and_save(article: dict) -> dict:
@@ -400,13 +408,15 @@ def main():
     print()
 
     # Build and run pipeline
-    orchestrator = build_pipeline(
+    pipeline_stash = {}
+    orchestrator, pipeline_stash = build_pipeline(
         observer=observer,
         claude_client=claude,
         publishers=publishers,
         enable_judge=not args.no_judge,
         publish_mode=args.publish,
         enabled_platforms=list(enabled_platforms),
+        stash=pipeline_stash,
     )
 
     # Run
@@ -443,21 +453,21 @@ def main():
     # Save observer log
     print(f"\n  💾 Trace log saved to data/traces/")
 
-    # Run interview question generator (separate from main pipeline)
+    # Run interview question generator (uses real analyze data from stash)
     if result.success:
         try:
             from agents.interview_agent import InterviewAgent
             ia = InterviewAgent(observer=observer, claude_client=claude)
-            # Collect analysis data from pipeline result or re-capture
+            analyze_data = pipeline_stash.get("analyze", {})
             interview_data = {
                 "date": args.date,
-                "day_summary": result.final_output.get("summary", "") if isinstance(result.final_output, dict) else "",
-                "highlights": [],
-                "architecture_decisions": [],
-                "key_insights": [],
-                "tags": [],
+                "day_summary": analyze_data.get("day_summary", ""),
+                "highlights": analyze_data.get("highlights", []),
+                "architecture_decisions": analyze_data.get("architecture_decisions", []),
+                "key_insights": analyze_data.get("key_insights", []),
+                "tags": analyze_data.get("tags", []),
             }
-            print("\n  🎯 Generating interview questions...")
+            print(f"\n  🎯 Generating interview questions from {len(interview_data['highlights'])} highlights...")
             interview_result = ia.run(interview_data)
             _save_interview(interview_result)
             print(f"  ✓ Interview questions: {interview_result.get('question_count', 0)} questions")
