@@ -1,0 +1,89 @@
+# {{ title }}
+
+> {{ summary }}
+
+{% if diagrams.architecture %}
+```mermaid
+{{ diagrams.architecture }}
+```
+{% endif %}
+
+---
+
+## 1. 背景与问题
+
+{{ background.problem }}
+{{ background.challenge }}
+{{ background.stakes }}
+
+---
+
+## 2. 根因分析
+
+{% for cause in root_causes %}
+### {{ cause.level or '根因 ' ~ loop.index }}：{{ cause.title or '未命名' }}
+
+{{ cause.analysis or cause.description or '' }}
+
+{% if cause.diagram %}
+```mermaid
+{{ cause.diagram }}
+```
+{% endif %}
+
+{% endfor %}
+
+---
+
+## 3. 方案
+
+{% for solution in solutions %}
+### {{ solution.title }}
+
+**核心思路**：{{ solution.core_idea }}
+
+{% if solution.code_before %}
+**Before：**
+```{{ solution.code_lang }}
+{{ solution.code_before }}
+```
+{% endif %}
+
+**After：**
+```{{ solution.code_lang }}
+{{ solution.code }}
+```
+
+{{ solution.explanation }}
+
+{% endfor %}
+
+---
+
+## 4. 架构决策
+
+| 决策 | 替代方案 | 理由 |
+|------|---------|------|
+{% for decision in decisions %}
+| {{ decision.choice }} | {{ decision.alternative }} | {{ decision.rationale }} |
+{% endfor %}
+
+---
+
+## 5. 生产考量
+
+{% for item in production_notes %}
+- **{{ item.topic }}**：{{ item.detail }}
+{% endfor %}
+
+---
+
+## 6. 关键收获
+
+{% for takeaway in takeaways %}
+{{ loop.index }}. **{{ takeaway.title }}**：{{ takeaway.body }}
+{% endfor %}
+
+---
+
+> 本文由 [Agent Daily Publisher](https://github.com/quarktimes/agent-daily-publisher) 自动生成

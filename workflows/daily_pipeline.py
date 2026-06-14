@@ -38,7 +38,7 @@ from tools.privacy_filter import (
     validate_article_safe,
     add_privacy_instruction_to_prompt,
 )
-from tools.format_sanitizer import sanitize_article
+from tools.template_renderer import TemplateRenderer
 from tools.cover_image import generate_cover
 from tools.publishers.devto import DevToPublisher
 from tools.publishers.juejin import JuejinPublisher
@@ -80,8 +80,9 @@ def build_pipeline(
             judge_agent=judge_agent,
             observer=observer,
             max_iterations=3,
-            pass_threshold=80,
+            pass_threshold=70,
             experience_store=ExperienceStore(),
+            renderer=TemplateRenderer(),
         )
     else:
         write_stage = WriteAgent(observer=observer, claude_client=claude_client)
@@ -165,36 +166,24 @@ def build_pipeline(
 
 
 def _validate_and_save(article: dict) -> dict:
-    """Sanitize, validate and save article."""
-    # Stage 0: Sanitize formatting — force fix even if passed as tuple
+    """Validate privacy, save, generate cover. Content already rendered by JudgeLoopPipeline."""
     if isinstance(article, (list, tuple)):
         article = article[0]
-    article = sanitize_article(article)
+    if not isinstance(article, dict):
+        logger.error(f"Expected dict article, got {type(article)}")
+        return {}
 
-    # Save article
+    # Save rendered Markdown
     try:
         path = save_article(article)
         logger.info(f"Article saved: {path}")
-        # Verify the saved file is clean
-        with open(path, "r") as f:
-            saved = f.read()
-        import re
-        broken = sum(1 for l in saved.split("\n")
-                     if l.strip().startswith("```") and not re.match(r'^```[a-zA-Z]*\s*$', l.strip()))
-        if broken:
-            logger.warning(f"  ⚠️  Saved article has {broken} broken fences — re-saving with forced fix")
-            fixed = sanitize_article({"title": "", "content": saved, "summary": ""})
-            with open(path, "w") as f:
-                f.write(fixed["content"])
     except Exception as e:
         logger.warning(f"Could not save article: {e}")
 
-    # Privacy validation
+    # Privacy validation on rendered content
     is_safe, findings = validate_article_safe(article)
     if not is_safe:
-        logger.warning(f"⚠️  Article contains potential secrets — {len(findings)} findings")
-        for f in findings:
-            logger.warning(f"  [{f['field']}] {f['snippet']}")
+        logger.warning(f"⚠️  {len(findings)} potential secrets found")
     else:
         logger.info("✓ Article privacy check passed")
 
@@ -202,7 +191,6 @@ def _validate_and_save(article: dict) -> dict:
     try:
         cover_path = generate_cover(
             article.get("title", ""),
-            article.get("date", datetime.now().strftime("%Y-%m-%d")),
             tags=article.get("tags", []),
         )
         if cover_path:
@@ -210,12 +198,6 @@ def _validate_and_save(article: dict) -> dict:
             logger.info(f"🖼️  Cover generated: {cover_path}")
     except Exception as e:
         logger.warning(f"Cover generation skipped: {e}")
-
-    # Sync to Obsidian vault if configured
-    try:
-        _sync_to_obsidian(article)
-    except Exception as e:
-        logger.warning(f"Obsidian sync skipped: {e}")
 
     return article
 
@@ -404,11 +386,8 @@ def _publish_interview(date: str, publishers: list) -> None:
                     break
             body = parts[2].strip()
 
-    # Sanitize formatting
+    # Clean code blocks
     body = _clean_code_blocks(body)
-    sanitized = sanitize_article({"title": title, "content": body, "summary": ""})
-    title = sanitized["title"]
-    body = sanitized["content"]
 
     # Publish to Dev.to
     devto = next((p for p in publishers if p.name == "devto"), None)

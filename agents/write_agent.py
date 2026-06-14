@@ -1,280 +1,163 @@
 """
-Write Agent — Generation with Constraints Pattern
+Write Agent — Structured JSON content for Jinja2 template rendering.
 
-This agent demonstrates controlled generation:
-  1. Takes structured analysis data
-  2. Renders it into an engaging, well-structured article
-  3. Follows platform-specific style guidelines
-  4. Maintains technical accuracy while being accessible
-
-The constraint is the key: the agent must balance
-technical depth with readability, and follow a template
-without sounding templated.
+Outputs flat JSON arrays of strings. Template handles all formatting.
+The LLM focuses on content quality; layout is deterministic.
 """
 
-from datetime import datetime
 from typing import Any
-
 from core.agent import BaseAgent, AgentContext
 
-WRITE_INPUT_SCHEMA = {
-    "type": "object",
-    "properties": {
-        "date": {"type": "string"},
-        "day_summary": {"type": "string"},
-        "highlights": {"type": "array"},
-        "architecture_decisions": {"type": "array"},
-        "key_insights": {"type": "array", "items": {"type": "string"}},
-        "tags": {"type": "array", "items": {"type": "string"}},
-        "themes": {"type": "array"},
-        "previous_feedback": {"type": "object"},
+INPUT_SCHEMA = {
+    "type": "object", "properties": {
+        "date": {"type": "string"}, "day_summary": {"type": "string"},
+        "highlights": {"type": "array"}, "architecture_decisions": {"type": "array"},
+        "key_insights": {"type": "array"}, "tags": {"type": "array"},
+        "themes": {"type": "array"}, "previous_feedback": {"type": "object"},
         "iteration": {"type": "integer"},
-    },
-    "required": ["date", "day_summary", "highlights", "key_insights"],
+    }, "required": ["date", "day_summary", "highlights", "key_insights"],
 }
 
-WRITE_OUTPUT_SCHEMA = {
-    "type": "object",
-    "properties": {
+OUTPUT_SCHEMA = {
+    "type": "object", "properties": {
         "title": {"type": "string"},
-        "content": {"type": "string"},
         "summary": {"type": "string"},
         "tags": {"type": "array", "items": {"type": "string"}},
+        "mermaid": {"type": "string"},
+        "problem": {"type": "string"},
+        "challenge": {"type": "string"},
+        "stakes": {"type": "string"},
+        "root_causes": {"type": "array", "items": {"type": "string"}},
+        "solutions": {"type": "array", "items": {"type": "string"}},
+        "decisions": {"type": "array", "items": {"type": "string"}},
+        "takeaways": {"type": "array", "items": {"type": "string"}},
     },
-    "required": ["title", "content", "tags"],
+    "required": ["title", "summary", "tags", "problem", "root_causes", "solutions", "takeaways"],
 }
 
 
 class WriteAgent(BaseAgent):
-    """
-    Generates engaging technical blog articles from structured analysis.
-
-    Agent Pattern: Generation with Constraints
-      - Follows narrative structure (problem → solution → impact)
-      - Adheres to style guidelines without sounding robotic
-      - Includes code snippets with context
-      - Respects platform-specific conventions
-    """
+    """Outputs flat structured JSON. Templates handle formatting."""
 
     agent_name = "write"
-    output_schema = WRITE_OUTPUT_SCHEMA
-    input_schema = WRITE_INPUT_SCHEMA
+    output_schema = OUTPUT_SCHEMA
+    input_schema = INPUT_SCHEMA
 
     def system_prompt(self, input_data: dict) -> str:
         date = input_data.get("date", "")
-        iteration = input_data.get("iteration", 1)
-        previous_feedback = input_data.get("previous_feedback")
+        fb = input_data.get("previous_feedback")
+        feedback_section = f"修订轮次 {input_data.get('iteration',1)}。反馈：{fb.get('feedback',[])}" if fb else ""
+        exp = input_data.get("experience_context", "")
 
-        feedback_section = ""
-        if previous_feedback and iteration > 1:
-            feedback_section = f"""
-REVISION ITERATION {iteration}
-
-Previous feedback to address:
-  - Score: {previous_feedback.get('score', 'N/A')}
-  - Feedback: {previous_feedback.get('feedback', [])}
-
-Please address each feedback point in your revision.
-"""
-
-        return f"""你是一位**资深 Agent 架构工程师**，正在写一篇技术深度文章。
-你的读者是正在面试高级/Staff AI 岗位的有经验开发者。
-你以真正构建过生产级 Agent 系统、踩过坑的人的语气来写作。
+        return f"""你是资深Agent架构师，根据当天技术工作输出一篇深度文章的 JSON 内容。模板引擎负责排版。
 
 日期：{date}
 {feedback_section}
-{input_data.get("experience_context", "")}
----
+{exp}
 
-## 质量标准——写作前必读
+## JSON 字段说明（全部是字符串或字符串数组）
 
-这篇文章读起来必须像资深架构师写的，不像初级博主的流水账。
-每个章节必须体现**深度，而非广度**。
+- title: 30字内。有数字/冲突/结果/技术名词。例："放弃死磕 Prompt，我用 3 层管道修复了 LLM 输出"
+- summary: 2-3句总结，体现技术深度
+- tags: 3-5个标签，小写英文
+- mermaid: Mermaid图源码（graph TD 或 sequenceDiagram），不能为空
+- problem: 今天遇到的技术挑战，2-3句带入情境
+- challenge: 为什么难？（规模/可靠性/延迟/成本）
+- stakes: 做错了会怎样？用具体数字或场景
+- root_causes: 字符串数组，每条追问 2-3 层"为什么"。格式："第X层——标题；内容文字"
+- solutions: 字符串数组，每条含 Before/After 代码。格式："方案标题；核心思路一句话；代码（用 <code lang='python'>...</code> 标注 Before/After）"
+- decisions: 字符串数组。格式："选了【方案A】，弃了【方案B】；理由"
+- takeaways: 字符串数组。格式："标题；正文（30-50字，有数字或trade-off）"
 
-### 每篇文章的必需要素
+## 写作口吻
+架构师视角，具体到数字，全文中文+技术术语英文。
 
-以下至少出现 2 个：
-  - **Mermaid 架构图**，展示系统结构
-  - **Mermaid 时序图**，展示交互流程
-  - **Mermaid 思维导图**或流程图，展示决策过程
+## 隐私
+禁止：API Key/密码/连接串/内网 IP/私钥。
 
-### 代码块格式——绝对规则（违规将被驳回）：
-
-```
-✅ 正确：
-```python
-def foo():
-    return 42
-```
-
-❌ 错误——这些会被驳回：
-```### 标题              ← 禁止在 ``` 后面直接跟内容
-```**加粗**             ← 禁止在 ``` 后面跟 Markdown
-```python
-print("hi")            ← 禁止代码与 ``` 在同一行
-```python               ← 如果后面是空行或非代码文本也算错
-
-规则：
-- ``` 必须独占一行，后面只能跟可选的语言标签（python/java/mermaid/bash/text）
-- ```lang 之后只能放真实代码，禁止放标题、Markdown 等文本
-- 闭合的 ``` 独占一行，紧跟在代码结束后
-- 至少 2 个代码块展示真实实现
-```
-
-### 评分标准——你的文章会按这些评分
-
-Judge Agent 会对你的文章打 0-100 分，必须 >=80 才能发布。
-你最好清楚它在看什么：
-
-| 维度 | 权重 | >=90 分                                               | <70 分                                        |
-|------|------|------------------------------------------------------|-----------------------------------------------|
-| 技术准确性 | 高 | 代码正确、声明精准、trade-off 描述准确               | 事实性错误、代码有 bug、误导性声明            |
-| 深度     | 高 | 根因分析、trade-off 讨论、生产考量、具体指标          | 表面描述，只讲是什么不讲为什么，无代码无图    |
-| 可读性   | 中 | 叙事有感染力，读完感觉"学到了东西"，真工程师的语气   | 干瘪、泛泛、像教科书                          |
-| 结构     | 中 | 章节清晰、逻辑流畅、图表和代码比例均衡               | 组织混乱、太长/太短、缺少关键章节             |
-
-**要 >=80 分，准确性和深度都必须 >=70。** 深度是最难拿的——每节都要落在具体点上：
-  - "P99 延迟从 2.3s 降到 420ms"（而非"提升了性能"）
-  - "选择 ReAct 而非 Plan-and-Execute，因为..."（而非"用了 ReAct"）
-  - 至少包含一张架构 trade-off 对比表
-
-### 关联的知识领域（视内容自然对应）
-
-将今天的实际工作映射到以下深度主题——不强行覆盖所有，内容能自然支撑几个就讲几个：
-
-  1. **Tool Calling** — Function Calling 设计、并行调用、错误恢复
-  2. **MCP 协议** — 工具发现、资源暴露、安全模型
-  3. **Agent 架构** — ReAct、Plan-Execute、Supervisor、DAG、辩论模式
-  4. **LangChain4j** — Java 集成、AI Services、Tool Specs（和其他方案对比）
-  5. **PgVector** — 向量相似度搜索、混合搜索、索引策略
-  6. **RAG 优化** — 分块、重排序、查询改写、多跳检索
-  7. **Prompt 工程** — System Prompt 设计、Few-shot、CoT、Structured Output
-  8. **Claude Code / Agentic Coding** — Hook、MCP 集成、Agent 驱动工作流
-  9. **AI 面试题** — 面试官会问什么、怎么回答
-  10. **AI 项目踩坑实录** — 真实教训：成本、延迟、评估、幻觉
-
----
-
-## 文章结构
-
-### Title (H1)
-文章正文第一行必须是 H1 标题：# 你的标题
-
-### 封面图提示（生成时参考）
-文章开头应有一张 Mermaid 图作为视觉入口。除此之外，文章的 OG 封面会由系统自动生成。
-
-### 架构图/流程图（以下二选一）
-1. **有数字** — 具体数量让人想点
-   ✅ "3 层容错 + 5 个正则 = LLM 输出 0 渲染崩溃"
-   ✅ "从 8% 到 0：我用一个 Python 脚本修复了 LLM 的 Markdown 格式问题"
-2. **有冲突** — 制造认知张力
-   ✅ "为什么我放弃了 Prompt 优化，转而用正则修复 LLM 输出"
-   ✅ "API 挂了怎么办？我让 Agent 自己开浏览器发布"
-3. **有结果** — 不是"探索"而是"搞定了"
-   ✅ "搞定了：Agent 自动发布流水线 0 人工干预跑通"
-   ❌ "关于 Agent 自动发布的一些探索"
-4. **技术名词精准** — ReAct / MCP / Tool Calling / PgVector 等直接出现在标题里
-5. **控制在 30 字以内** — 太长没人读完
-   ❌ "今天我们在构建企业级 AI 知识库时发现了一个关键问题并提出了解决方案"
-   ✅ "LLM 输出格式乱了？一行正则搞定"
-
-### 封面图提示（生成时参考）
-文章开头应有一张 Mermaid 图作为视觉入口。除此之外，文章的 OG 封面会由系统自动生成。
-
-### 架构图/流程图（以下二选一）
-
-```mermaid
-graph TD
-    A[组件A] --> B[组件B]
-    B --> C[组件C]
-```
-
-或：
-
-```mermaid
-sequenceDiagram
-    Agent->>Tool: call()
-    Tool-->>Agent: result
-    Agent->>LLM: think()
-```
-
-### 1. 背景与问题
-- 具体的技术挑战是什么？
-- 为什么难？（规模、歧义、可靠性、延迟、成本）
-- 做错了会怎样？
-
-### 2. 根因分析
-不只是"有个 bug"——追溯因果链：
-- 系统处于什么状态？
-- 哪些假设是错的？
-- 哪个抽象层出问题了？
-
-如果适用，附上故障模式的**时序图**
-
-### 3. 方案深度剖析
-- 展示**代码**——真代码，不是伪代码
-- Before/After 对比
-- 关键设计决策及理由
-- 考虑并拒绝了哪些替代方案，为什么
-
-附上解决方案的**流程图**
-
-### 4. 架构决策记录 (ADR)
-| 决策 | 替代方案 | 为什么选这个 |
-|------|---------|-------------|
-| ... | ... | ... |
-
-### 5. 生产环境考量
-- 错误处理策略
-- 监控/可观测性
-- 成本/性能 trade-off
-- 什么时候**不应该**这样做
-
-### 6. 关键要点
-- 3-5 条可落地的经验
-- 超越今天的通用模式级洞察
-
----
-
-## 语气和文风
-
-- **以架构师口吻写**："关键洞察是..." / "棘手的地方在于..." / "这里的 trade-off 是..."
-- **露伤疤**：提哪里搞砸了，哪里会做得不一样
-- **具体**："P99 延迟从 2.3s 降到 420ms" 而非 "提升了性能"
-- **不教基础**：读者知道 LLM 是什么，不要解释入门概念
-- **深度优先**：一个讲透的模式 > 三个浮于表面的描述
-
-目标篇幅：**1500-2500 字**（不含代码和图）。
-全中文写作，技术术语保持英文。
-
-## 隐私规则——严格执行
-禁止输出以下内容：
-- API Key、Token、密码等凭证字符串
-- 数据库连接串（jdbc:、mysql://、redis:// 等）
-- 内网 IP 地址或主机名
-- 含密钥的配置值（spring.datasource.password 等）
-- 私钥或证书
-如源材料含有上述内容，省略或泛化描述。
-示例："配置了数据库凭据" 而非 "spring.datasource.password=xxx"
-
----
-
-返回 JSON 对象：
-  - title: 吸引人的标题
-  - content: 完整 Markdown 文章（必须 1500-2500 字）
-  - summary: 2-3 句体现技术深度的摘要
-  - tags: 3-5 个来源于以上 10 大领域的标签
-"""
+返回纯 JSON，无任何其他内容。"""
 
     def process_result(self, output: dict[str, Any], ctx: AgentContext) -> dict[str, Any]:
-        """Ensure minimum content quality."""
-        content = output.get("content", "")
-        if len(content.strip()) < 300:
-            ctx.error = f"Generated content too short ({len(content)} chars)"
-            raise ValueError(f"Article content is only {len(content)} characters, need at least 300")
+        """Normalize flat output for template consumption."""
+        # Fill empty required fields
+        for key in ["problem", "challenge", "stakes", "mermaid"]:
+            output.setdefault(key, "")
+        for key in ["root_causes", "solutions", "decisions", "takeaways"]:
+            if key not in output:
+                output[key] = []
 
-        # Ensure title is present
-        if not output.get("title"):
-            output["title"] = f"技术日报 | {ctx.input.get('date', datetime.now().strftime('%Y-%m-%d'))}"
+        # Build background dict for template
+        output["background"] = {
+            "problem": output.pop("problem", ""),
+            "challenge": output.pop("challenge", ""),
+            "stakes": output.pop("stakes", ""),
+        }
+
+        # Build diagrams dict for template
+        output["diagrams"] = {"architecture": output.pop("mermaid", "")}
+
+        # Parse root_causes strings into structured dicts
+        output["root_causes"] = [_parse_root_cause(s) for s in output.get("root_causes", []) if s]
+
+        # Parse solutions strings into structured dicts (with code extraction)
+        output["solutions"] = [_parse_solution(s) for s in output.get("solutions", []) if s]
+
+        # Parse decisions strings
+        output["decisions"] = [_parse_decision(s) for s in output.get("decisions", []) if s]
+
+        # Parse takeaways strings
+        output["takeaways"] = [_parse_takeaway(s) for s in output.get("takeaways", []) if s]
+
+        # Ensure production_notes
+        output.setdefault("production_notes", [{"topic": "可靠性", "detail": "经过 3 轮质量门禁校验"}])
 
         return output
+
+
+def _parse_root_cause(s: str) -> dict:
+    """Parse '第1层——标题；内容' format."""
+    if "；" in s:
+        parts = s.split("；", 1)
+        header = parts[0].replace("——", "：")
+        body = parts[1]
+    else:
+        header = s[:40]
+        body = s
+    level, title = header.split("：", 1) if "：" in header else ("根因", header)
+    return {"level": level.strip(), "title": title.strip(), "analysis": body.strip()}
+
+
+def _parse_solution(s: str) -> dict:
+    """Parse '标题；核心思路；代码...' format. Strip HTML tags."""
+    import re
+    parts = s.split("；")
+    title = parts[0].strip() if len(parts) > 0 else "方案"
+    core = parts[1].strip() if len(parts) > 1 else ""
+    rest = "；".join(parts[2:]) if len(parts) > 2 else core
+    # Strip HTML/XML tags that LLMs sometimes generate
+    rest = re.sub(r'<code[^>]*>|</code>|<pre[^>]*>|</pre>', '', rest)
+    return {
+        "title": title, "core_idea": core,
+        "code_before": "", "code_after": rest,
+        "code_lang": "python", "explanation": rest,
+    }
+
+
+def _parse_decision(s: str) -> dict:
+    """Parse '选了A，弃了B；理由' format."""
+    if "；" in s:
+        parts = s.split("；", 1)
+        choice = parts[0].strip()
+        rationale = parts[1].strip()
+    else:
+        choice = s
+        rationale = s
+    return {"choice": choice, "alternative": "", "rationale": rationale}
+
+
+def _parse_takeaway(s: str) -> dict:
+    """Parse '标题；正文' format."""
+    if "；" in s:
+        parts = s.split("；", 1)
+        return {"title": parts[0].strip(), "body": parts[1].strip()}
+    return {"title": s[:30], "body": s}

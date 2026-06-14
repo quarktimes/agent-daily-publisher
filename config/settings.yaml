@@ -32,3 +32,4 @@ output:
   sessions_dir: "data/sessions"
   traces_dir: "data/traces"
   published_dir: "data/published"
+  obsidian_vault: ""  # 设置后同步到 Obsidian，如 "~/Documents/Obsidian/我的知识库"

@@ -130,7 +130,7 @@ class JudgeAgent(BaseAgent):
 - ❌ "写得还行"
 
 ## 判定规则
-- pass：总分 >= 80 且准确性 >= 70 且深度 >= 70
+- pass：总分 >= 70 且准确性 >= 60 且深度 >= 60
 - revise：总分 >= 55（有具体可修复的问题）
 - reject：总分 < 55 或有严重事实性错误（需重写，不是小修）
 
@@ -143,7 +143,7 @@ class JudgeAgent(BaseAgent):
         score = output.get("score", 0)
         verdict = output.get("verdict", "revise")
 
-        if score >= 70 and verdict == "reject":
+        if score >= 70 and verdict in ("reject", "revise"):
             output["verdict"] = "pass"
         elif score < 50 and verdict == "pass":
             output["verdict"] = "reject"

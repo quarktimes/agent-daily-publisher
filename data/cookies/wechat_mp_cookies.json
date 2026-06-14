@@ -1,0 +1,42 @@
+[
+  {
+    "name": "ua_id",
+    "value": "k8mMq3vipzJ6aWlKAAAAACstit5FQahiadVMLGGZj2I=",
+    "domain": "mp.weixin.qq.com",
+    "path": "/",
+    "expires": 1815632274.518968,
+    "httpOnly": true,
+    "secure": true,
+    "sameSite": "Lax"
+  },
+  {
+    "name": "_clck",
+    "value": "1rak743|1|g6s|0",
+    "domain": ".qq.com",
+    "path": "/",
+    "expires": 1812595875,
+    "httpOnly": false,
+    "secure": false,
+    "sameSite": "Lax"
+  },
+  {
+    "name": "wxuin",
+    "value": "81059875297098",
+    "domain": "mp.weixin.qq.com",
+    "path": "/",
+    "expires": 1815619875.310204,
+    "httpOnly": false,
+    "secure": false,
+    "sameSite": "Lax"
+  },
+  {
+    "name": "uuid",
+    "value": "22c164126323469deeec79e866a84d22",
+    "domain": "mp.weixin.qq.com",
+    "path": "/",
+    "expires": -1,
+    "httpOnly": true,
+    "secure": true,
+    "sameSite": "Lax"
+  }
+]

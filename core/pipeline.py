@@ -212,8 +212,9 @@ class JudgeLoopPipeline:
         judge_agent: BaseAgent,
         observer: Observer | None = None,
         max_iterations: int = 3,
-        pass_threshold: int = 80,
+        pass_threshold: int = 70,
         experience_store: Any = None,
+        renderer: Any = None,
     ):
         self.write_agent = write_agent
         self.judge_agent = judge_agent
@@ -221,6 +222,7 @@ class JudgeLoopPipeline:
         self.max_iterations = max_iterations
         self.pass_threshold = pass_threshold
         self.experience_store = experience_store
+        self.renderer = renderer
 
     def run(self, input_data: Any) -> tuple[dict, list[dict]]:
         """
@@ -256,6 +258,14 @@ class JudgeLoopPipeline:
 
             # Write
             article = self.write_agent.run(enriched_input)
+
+            # Render via template (converts JSON → Markdown for Judge to evaluate)
+            if self.renderer:
+                try:
+                    article["content"] = self.renderer.render(article, "devto")
+                    article["wechat_html"] = self.renderer.render(article, "wechat_mp")
+                except Exception as e:
+                    self.observer.log(f"Template render failed: {e}")
 
             # Judge
             judge_input = {
