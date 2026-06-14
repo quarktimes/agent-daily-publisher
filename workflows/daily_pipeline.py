@@ -102,7 +102,11 @@ def build_pipeline(
     # Build the pipeline
     orchestrator = PipelineOrchestrator(observer=observer)
 
-    orchestrator.add_stage("capture", capture_agent)
+    orchestrator.add_stage(
+        "capture",
+        capture_agent,
+        output_transform=lambda data, s=stash: (s.update({"capture": data}) or data),
+    )
     orchestrator.add_stage(
         "analyze",
         analyze_agent,
@@ -415,6 +419,50 @@ def _publish_interview(date: str, publishers: list) -> None:
             logger.info(f"📤 Interview draft saved to WeChat MP: {result.url}")
 
 
+def _run_usage_analysis(date: str, claude: any, observer: any, stash: dict, state: any) -> None:
+    """Analyze Claude Code usage patterns from daily sessions."""
+    if state.is_completed("usage_analysis"):
+        logger.info("  ⏭️  Usage analysis: skipped (cached)")
+        return
+
+    from agents.usage_analysis_agent import UsageAnalysisAgent
+    ua = UsageAnalysisAgent(observer=observer, claude_client=claude)
+    capture_data = stash.get("capture", {})
+    sessions = capture_data.get("sessions", []) if isinstance(capture_data, dict) else []
+    analyze_data = stash.get("analyze", {})
+    print(f"\n  📊 Analyzing Claude Code usage ({len(sessions)} sessions)...")
+    result = ua.run({
+        "date": date,
+        "sessions": sessions,
+        "day_summary": analyze_data.get("day_summary", "") if isinstance(analyze_data, dict) else "",
+        "highlights": analyze_data.get("highlights", []) if isinstance(analyze_data, dict) else [],
+    })
+    _save_usage_analysis(result)
+    state.complete_stage("usage_analysis", {"patterns": len(result.get("positive_patterns", []))})
+    print(f"  ✓ Usage analysis: {len(result.get('positive_patterns', []))} positives, {len(result.get('negative_patterns', []))} improvements")
+
+
+def _save_usage_analysis(data: dict) -> None:
+    """Save usage analysis report to data/usage/."""
+    from pathlib import Path
+    out_dir = Path(__file__).parent.parent / "data" / "usage"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    filepath = out_dir / f"{datetime.now().strftime('%Y-%m-%d')}_claude_usage.md"
+    content = data.get("content", "")
+    title = data.get("title", "Claude Code 使用分析")
+    frontmatter = f"""---
+title: {title}
+date: "{datetime.now().strftime('%Y-%m-%d')}"
+type: usage-analysis
+source: agent-daily-publisher
+---
+
+"""
+    with open(filepath, "w", encoding="utf-8") as f:
+        f.write(frontmatter + content)
+    logger.info(f"📊 Usage analysis saved: {filepath}")
+
+
 def _extract_article(data: dict) -> dict:
     """Extract article from various pipeline stage output formats."""
     if isinstance(data, dict):
@@ -616,7 +664,7 @@ def main():
                     "key_insights": analyze_data.get("key_insights", []),
                     "tags": analyze_data.get("tags", []),
                 }
-                print(f"\n  🎯 Generating interview questions from {len(interview_data['highlights'])} highlights...")
+                print(f"\n  🎯 Generating interview questions...")
                 interview_result = ia.run(interview_data)
                 _save_interview(interview_result)
                 pipeline_state.complete_stage("interview", {"count": interview_result.get("question_count", 0)})
@@ -631,6 +679,12 @@ def main():
             _publish_interview(args.date, publishers)
         except Exception as e:
             print(f"  - Interview publish skipped: {e}")
+
+        # Claude Code Usage Analysis
+        try:
+            _run_usage_analysis(args.date, claude, observer, pipeline_stash, pipeline_state)
+        except Exception as e:
+            print(f"  - Usage analysis skipped: {e}")
 
     return result
 
