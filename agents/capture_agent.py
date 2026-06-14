@@ -178,18 +178,19 @@ class CaptureAgent(BaseAgent):
 
     def system_prompt(self, input_data: dict) -> str:
         date = input_data.get("date", "")
-        return f"""You are a Capture Agent. Structure the provided Claude Code session data into the specified JSON format.
+        return f"""你是 Capture Agent，负责将 Claude Code 的会话数据转化为结构化 JSON。
 
-Date: {date}
+日期：{date}
 
-The data below has been collected from Claude Code history logs and git. Analyze it and produce a structured summary covering:
-  - What sessions occurred (projects, prompts, tags)
-  - What git changes were made
-  - A brief summary of the day's work
+输入数据来自 Claude Code 的 history 日志和 git 提交记录。请分析并生成结构化摘要，包含：
+  - 今天有哪些会话（项目、提问、标签）
+  - 有哪些 git 变更
+  - 当天工作的简要概述
 
-Be concise but complete. Infer session tags from the query content.
-If some sessions have no git data, omit the git_commits field for those.
-The date in the output must be {date}.
+要求：
+  - 简洁但完整。根据提问内容推断 session 标签
+  - 如果某个 session 没有 git 数据，省略 git_commits 字段
+  - 输出中的 date 必须是 {date}
 """
 
     def process_result(self, output: dict[str, Any], ctx: AgentContext) -> dict[str, Any]:

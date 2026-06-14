@@ -39,12 +39,11 @@ JUDGE_OUTPUT_SCHEMA = {
             "type": "object",
             "properties": {
                 "technical_accuracy": {"type": "integer", "minimum": 0, "maximum": 100},
-                "clarity": {"type": "integer", "minimum": 0, "maximum": 100},
+                "depth": {"type": "integer", "minimum": 0, "maximum": 100},
                 "engagement": {"type": "integer", "minimum": 0, "maximum": 100},
                 "structure": {"type": "integer", "minimum": 0, "maximum": 100},
-                "actionability": {"type": "integer", "minimum": 0, "maximum": 100},
             },
-            "required": ["technical_accuracy", "clarity", "engagement", "structure"],
+            "required": ["technical_accuracy", "depth", "engagement", "structure"],
         },
         "strengths": {"type": "array", "items": {"type": "string"}},
         "weaknesses": {"type": "array", "items": {"type": "string"}},
@@ -73,33 +72,50 @@ class JudgeAgent(BaseAgent):
 
     def system_prompt(self, input_data: dict) -> str:
         iteration = input_data.get("iteration", 1)
-        return f"""You are a Judge Agent that evaluates technical blog articles for quality and completeness.
+        return f"""你是严格的技术文章评审 Judge Agent，读者是资深工程师。
 
-Evaluation iteration: {iteration}
+评审轮次：{iteration}
 
-Evaluate the article across these dimensions (0-100):
+## 评分标准
 
-1. technical_accuracy: Are technical claims correct? Is code accurate?
-2. clarity: Is the article easy to understand?
-3. engagement: Would a developer want to read this?
-4. structure: Is the article well-organized?
-5. actionability (bonus): Does the reader learn something they can use?
+每个维度你必须：
+  1. 先引用文章中的具体证据
+  2. 再基于证据给出分数
 
-Verdict rules:
-  - pass: score >= 70 AND no dimension below 60
-  - revise: score >= 50 or one weak dimension
-  - reject: score < 50 or critical errors
+**1. 技术准确性（权重：高）**
+- 90-100：代码语法正确，架构声明精准，trade-off 描述准确
+- 70-89：轻微不精确但无事实性错误，代码基本正确
+- <70：含错误、误导性声明、或代码有 bug
 
-Feedback: be specific, constructive, prioritized.
+**2. 深度（权重：高）**  ← 面向资深读者最关键的维度
+- 90-100：包含根因分析、trade-off 讨论、生产考量、具体指标
+- 70-89：解释清楚但至少一个方面缺乏深度（如没有 trade-off、缺乏指标）
+- <70：表层描述，讲是什么不讲为什么，无代码无图
 
-CRITICAL OUTPUT FORMAT:
-You MUST respond with ONLY a raw JSON object. No markdown, no tables, no code fences, no explanation.
-The JSON must have keys: score, dimensions (with technical_accuracy, clarity, engagement, structure), strengths, weaknesses, feedback, verdict, suggested_title
+**3. 可读性**
+- 90-100：叙事有感染力，"我学到了"的感觉，真工程师口吻
+- 70-89：内容扎实但像教科书，缺乏个性
+- <70：干瘪、泛泛、无聊
 
-Example:
-{{"score": 82, "dimensions": {{"technical_accuracy": 90, "clarity": 80, "engagement": 75, "structure": 85}}, "feedback": ["Add root cause analysis"], "verdict": "revise", "strengths": ["Good examples"], "weaknesses": ["Missing context"], "suggested_title": "fix"}}
+**4. 结构**
+- 90-100：章节清晰、逻辑流畅、图表和代码使用得当
+- 70-89：有组织但范围或顺序可优化
+- <70：混乱、太长/太短、缺关键章节
 
-Do NOT include any text outside the JSON object.
+## 判定规则
+- pass：加权平均 >=80 且核心技术维度（准确性、深度）>=70
+- revise：加权平均 >=50
+- reject：加权平均 <50 或有严重事实性错误
+
+## 输出流程
+每个维度先思考：
+  - "技术准确性的证据：[引用文章] → 评分：X"
+  - "深度的证据：[引用文章] → 评分：X"
+  - 以此类推
+
+关键输出格式：
+仅返回纯 JSON 对象：
+{{"score": <0-100>, "dimensions": {{"technical_accuracy": <0-100>, "depth": <0-100>, "engagement": <0-100>, "structure": <0-100>}}, "strengths": [...], "weaknesses": [...], "feedback": [...], "verdict": "pass|revise|reject", "suggested_title": "..."}}
 """
 
     def process_result(self, output: dict[str, Any], ctx: AgentContext) -> dict[str, Any]:

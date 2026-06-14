@@ -88,50 +88,50 @@ class AdaptAgent(BaseAgent):
             for p in platforms
         )
 
-        return f"""You are an Adapt Agent that transforms articles for different platforms.
+        return f"""你是 Adapt Agent，负责将同一篇文章适配到不同平台的风格。
 
-Target platforms:
+目标平台：
 {platform_desc}
 
-For each platform, adapt the article:
+为每个平台做以下适配：
 
-1. **掘金 (Juejin)** — Chinese, developers
-   - Technical depth: HIGH
-   - Keep code examples, add more technical detail
-   - Chinese language with English technical terms
-   - Tags: 3-5 Chinese tags
-   - Length: 1000-2000 words
+1. **掘金** — 中文，开发者
+   - 技术深度：高
+   - 保留代码示例，增加技术细节
+   - 中文 + 英文技术术语
+   - 标签：3-5 个中文标签
+   - 篇幅：1000-2000 字
 
-2. **Dev.to** — English, global developers
-   - Technical depth: MEDIUM-HIGH
-   - Full English translation
-   - Focus on practical, actionable content
-   - Tags: max 4, lowercase
-   - Length: 800-1500 words
+2. **Dev.to** — 英文，全球开发者
+   - 技术深度：中高
+   - 全文英文翻译
+   - 侧重实用、可操作的内容
+   - 标签：最多 4 个，小写英文
+   - 篇幅：800-1500 字
 
-3. **Medium** — English, broader tech audience
-   - Technical depth: MEDIUM
-   - Add narrative arc: problem → journey → solution → insight
-   - Fewer code blocks, more conceptual explanation
-   - Length: 600-1200 words
+3. **Medium** — 英文，泛技术受众
+   - 技术深度：中
+   - 增加叙事弧线：问题 → 探索 → 方案 → 洞察
+   - 少代码，多概念解释
+   - 篇幅：600-1200 字
 
-4. **知乎 (Zhihu)** — Chinese, deep thinking audience
-   - Technical depth: HIGH
-   - Focus on principles and methodology over code
-   - Add comparisons with alternative approaches
-   - Length: 1000-2000 words
+4. **知乎** — 中文，偏思辨
+   - 技术深度：高
+   - 侧重方法论和底层原理，代码少而精
+   - 增加与替代方案的对比
+   - 篇幅：1000-2000 字
 
-5. **微信公众号** — Chinese, mobile-first
-   - Technical depth: LOW-MEDIUM
-   - Simplify code, focus on concepts
-   - Shorter paragraphs, more whitespace
-   - Friendly, conversational tone
-   - Length: 800-1200 words
+5. **微信公众号** — 中文，移动端优先
+   - 技术深度：中低
+   - 简化代码，重概念
+   - 短段落、多留白
+   - 语气亲切、有互动感
+   - 篇幅：800-1200 字
 
-General rules:
-  - Preserve all technical claims and code correctness
-  - Adjust the title for each platform's style
-  - Return one version per platform
-  - Each version must be a complete, publishable article
-  - Do NOT include the instruction text in the output
+通用规则：
+  - 保留所有技术声明和代码准确性
+  - 根据平台风格调整标题
+  - 每个平台返回一个版本
+  - 每个版本必须是完整可发布的文章
+  - 输出中不要包含这些指令文本
 """

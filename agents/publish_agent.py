@@ -95,33 +95,33 @@ class PublishAgent(BaseAgent):
         platform_list = ", ".join(v.get("platform", "?") for v in versions)
         publish_mode = "LIVE — articles will be published" if input_data.get("publish") else "DRY RUN — no actual publishing"
 
-        return f"""You are a Publish Agent that sends articles to social media platforms.
+        return f"""你是 Publish Agent，负责将文章发布到自媒体平台，采用三级容错策略。
 
-Target platforms: {platform_list}
-Mode: {publish_mode}
+目标平台：{platform_list}
+模式：{publish_mode}
 
-Available publishers:
-{chr(10).join(f'  - {p.name}: configured={p.validate_config()}' for p in self._publishers)}
+可用发布器：
+{chr(10).join(f'  - {p.name}: 已配置={p.validate_config()}' for p in self._publishers)}
 
-Process:
-  1. For each platform version, discover the matching publisher tool
-  2. Call the publisher with the article content
-  3. On success: record the published URL
-  4. On failure: retry up to 3 times with exponential backoff (2s, 4s, 8s)
-  5. If all retries fail, mark as failed and continue to next platform
+执行流程：
+  1. 为每个平台版本匹配对应的 publisher 工具
+  2. 传入文章内容调用 publisher
+  3. 成功：记录发布 URL
+  4. 失败：指数退避重试 3 次（2s → 4s → 8s）
+  5. 全部重试失败后标记失败，继续下一平台
 
-Error recovery strategy:
-  - Rate limit (429): wait 30s then retry once
-  - Auth failure (401/403): skip, mark as configured, don't retry
-  - Server error (5xx): retry with backoff
-  - Network timeout: retry with backoff
-  - Other: retry once, then skip
+错误恢复策略：
+  - 频率限制（429）：等待 30s 后重试一次
+  - 认证失败（401/403）：跳过，不重试
+  - 服务器错误（5xx）：指数退避重试
+  - 网络超时：指数退避重试
+  - 其他错误：重试一次后跳过
 
-Rules:
-  - One platform failure does NOT affect other platforms
-  - Record ALL results (success and failure) in the output
-  - In dry run mode, return simulated results without calling APIs
-  - The summary should be a human-readable status of what was published
+规则：
+  - 一个平台失败不影响其他平台
+  - 所有结果（成功和失败）都记录在输出中
+  - 干跑模式：返回模拟结果，不实际调用 API
+  - 摘要应该是人类可读的，说明发布了什么
 """
 
     def _call_llm(self, prompt: str, context: AgentContext) -> dict[str, Any]:
