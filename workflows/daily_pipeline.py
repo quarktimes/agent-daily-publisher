@@ -39,6 +39,7 @@ from tools.privacy_filter import (
     add_privacy_instruction_to_prompt,
 )
 from tools.format_sanitizer import sanitize_article
+from tools.cover_image import generate_cover
 from tools.publishers.devto import DevToPublisher
 from tools.publishers.juejin import JuejinPublisher
 from tools.publishers.csdn_browser import CsdNBrowserPublisher
@@ -196,6 +197,19 @@ def _validate_and_save(article: dict) -> dict:
             logger.warning(f"  [{f['field']}] {f['snippet']}")
     else:
         logger.info("✓ Article privacy check passed")
+
+    # Generate cover image
+    try:
+        cover_path = generate_cover(
+            article.get("title", ""),
+            article.get("date", datetime.now().strftime("%Y-%m-%d")),
+            tags=article.get("tags", []),
+        )
+        if cover_path:
+            article["cover_image"] = cover_path
+            logger.info(f"🖼️  Cover generated: {cover_path}")
+    except Exception as e:
+        logger.warning(f"Cover generation skipped: {e}")
 
     # Sync to Obsidian vault if configured
     try:
