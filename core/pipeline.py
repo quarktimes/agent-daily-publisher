@@ -269,7 +269,7 @@ class JudgeLoopPipeline:
                 except Exception as e:
                     self.observer.log(f"Template render failed: {e}")
 
-            # Polish — improve writing quality (voice, flow, hooks, title)
+            # Polish — improve writing quality
             if self.polisher and iteration == 0:
                 try:
                     polished = self.polisher.run({

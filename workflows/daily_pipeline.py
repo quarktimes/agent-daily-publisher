@@ -17,6 +17,7 @@ import logging
 import os
 import sys
 from datetime import datetime
+from typing import Any
 
 # Add project root to path
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
@@ -76,7 +77,9 @@ def build_pipeline(
         write_agent = WriteAgent(observer=observer, claude_client=claude_client)
         judge_agent = JudgeAgent(observer=observer, claude_client=claude_client)
         from tools.experience_store import ExperienceStore
+        from agents.title_agent import TitleAgent
         polisher_agent = PolisherAgent(observer=observer, claude_client=claude_client)
+        title_agent = TitleAgent(observer=observer, claude_client=claude_client)
         write_stage = JudgeLoopPipeline(
             write_agent=write_agent,
             judge_agent=judge_agent,
@@ -129,14 +132,18 @@ def build_pipeline(
                 "tags": data.get("tags", []),
                 "themes": data.get("themes", []),
             },
-            # Stage 2 — Validate article for privacy before adapt/publish
-            output_transform=lambda data: _validate_and_save(data[0] if isinstance(data, tuple) else data),
+            # Stage 2 — Title optimization + validate before adapt/publish
+            output_transform=lambda data, ta=title_agent: (
+                _validate_and_save(_run_title_agent(
+                    data[0] if isinstance(data, tuple) else data, ta
+                ))
+            ),
         )
     else:
         orchestrator.add_stage(
             "write",
             write_stage,
-            output_transform=lambda data: _validate_and_save(data),
+            output_transform=lambda data, ta=title_agent: _validate_and_save(_run_title_agent(data, ta)),
         )
 
     # Set up platform targets — only include enabled platforms
@@ -170,6 +177,41 @@ def build_pipeline(
     )
 
     return orchestrator, stash
+
+
+def _run_title_agent(article: dict, title_agent: Any) -> dict:
+    """Run TitleAgent on final article, replace if it produces a better title."""
+    if not article or not isinstance(article, dict):
+        return article
+    try:
+        content = article.get("content", "")
+        if len(content) < 200:
+            return article
+        result = title_agent.run({
+            "article_title": article.get("title", ""),
+            "article_content": content[:4000],
+            "summary": article.get("summary", ""),
+            "tags": article.get("tags", []),
+        })
+        candidates = result.get("candidates", [])
+        if candidates:
+            best = max(candidates, key=lambda c: c.get("score", 0))
+            if best.get("score", 0) >= 60 and best.get("title"):
+                new_title = best["title"]
+                old_title = article.get("title", "")
+                article["title"] = new_title
+                # Also update H1 in rendered content
+                content = article.get("content", "")
+                lines = content.split("\n")
+                for i, line in enumerate(lines):
+                    if line.startswith("# ") and len(line) < 120:
+                        lines[i] = "# " + new_title
+                        break
+                article["content"] = "\n".join(lines)
+                logger.info(f"TitleAgent: '{old_title[:40]}' → '{new_title}' ({len(candidates)} candidates, score={best['score']})")
+    except Exception as e:
+        logger.debug(f"TitleAgent skipped: {e}")
+    return article
 
 
 def _quick_fix_title(title: str) -> str:
