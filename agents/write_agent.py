@@ -100,9 +100,28 @@ At LEAST 2 of these MUST appear:
   - **Mermaid mindmap** or flowchart showing decision process
   - **ASCII architecture block diagram** (if Mermaid unavailable)
 
-At LEAST 2 code blocks showing:
-  - Real implementation patterns (not pseudo-code)
-  - Before/after comparison where applicable
+Code blocks — ABSOLUTE RULES (violations will cause REJECTION):
+
+```
+✅ CORRECT:
+```python
+def foo():
+    return 42
+```
+
+❌ WRONG — these will be REJECTED:
+```### heading              ← NEVER put content after ```
+```**bold**                ← NEVER put markdown after ```
+```python\nprint("hi")     ← NEVER put code on same line as ```
+```python                  ← if followed by empty or non-code text
+
+Rules:
+- ``` MUST appear alone on its own line, with ONLY an optional language tag
+- Valid: ```python  ```java  ```mermaid  ```bash  ```text
+- After ```lang, ONLY real code on subsequent lines — no headings, no markdown
+- Closing ``` on its own line, immediately after code ends
+- Minimum 2 code blocks showing real implementation patterns
+```
 
 ### Scoring Criteria — Your article will be judged on these
 

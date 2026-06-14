@@ -33,6 +33,8 @@ def sanitize_article(article: dict[str, Any]) -> dict[str, Any]:
 def _normalize_markdown(text: str) -> str:
     """Apply all normalization rules."""
     rules = [
+        _fix_broken_fences,          # Strip/fix garbage ``` lines before anything else
+        _fix_unclosed_code_blocks,   # Close unclosed fences
         _fix_code_blocks,
         _fix_headings,
         _fix_lists,
@@ -45,6 +47,80 @@ def _normalize_markdown(text: str) -> str:
     for rule in rules:
         result = rule(result)
     return result.strip() + "\n"
+
+
+def _fix_broken_fences(text: str) -> str:
+    """Fix lines where ``` is followed by non-language content.
+
+    Valid: ```   ```python   ```mermaid
+    Invalid: ```### heading   ```**bold**   ```python\ncode   ```'):
+    """
+    import re
+
+    def _fix_line(line):
+        stripped = line.strip()
+        if not stripped.startswith("```"):
+            return line
+        # Already valid: ``` alone or ```lang
+        if re.match(r'^```[a-zA-Z0-9_+#.-]*$', stripped):
+            return line
+        # Broken: ``` followed by content — try to extract heading or strip
+        after_fence = stripped[3:].lstrip()
+        if not after_fence:
+            return "```"
+        # If it's clearly markdown content (headings, text), treat as regular line
+        if re.match(r'^[#*\-\d]', after_fence):
+            return after_fence  # Strip the ```  prefix
+        if after_fence.startswith("**"):
+            return after_fence  # Strip ```
+        # If it has code-like content, try to separate
+        if "\n" in after_fence:
+            # ```python\ncode... → becomes ```python plus code lines
+            first, rest = after_fence.split("\n", 1)
+            if re.match(r'^[a-zA-Z0-9_+#.-]+$', first):
+                return "```" + first + "\n" + rest + "\n```"
+            return after_fence
+        # Last resort: strip ALL ``` occurrences from this line (it's broken markdown)
+        return re.sub(r'```', '', after_fence)
+
+    lines = text.split("\n")
+    result = [_fix_line(line) for line in lines]
+    return "\n".join(result)
+
+
+def _fix_unclosed_code_blocks(text: str) -> str:
+    """Ensure every opening ``` has a matching closing ```.
+
+    If a code fence is never closed, the rest of the article becomes
+    one giant code block — the most destructive formatting bug.
+    """
+    lines = text.split("\n")
+    in_code = False
+    result = []
+    for i, line in enumerate(lines):
+        stripped = line.strip()
+        # Fence check: ``` alone, or ``` followed ONLY by a language tag (no spaces, no other text)
+        is_fence = (
+            stripped == "```"
+            or bool(re.match(r'^```[a-zA-Z0-9_+#.-]+$', stripped))
+            or bool(re.match(r'^```\s*$', stripped))  # bare ``` with optional trailing spaces
+        )
+
+        if is_fence and not in_code:
+            in_code = True
+            result.append(line)
+        elif is_fence and in_code:
+            # Check if this is a close or a new block
+            in_code = False
+            result.append(line)
+        elif not is_fence:
+            result.append(line)
+
+    # If we ended with an unclosed code block, close it
+    if in_code:
+        result.append("```")
+
+    return "\n".join(result)
 
 
 def _fix_code_blocks(text: str) -> str:

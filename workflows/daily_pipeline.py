@@ -165,13 +165,26 @@ def build_pipeline(
 
 def _validate_and_save(article: dict) -> dict:
     """Sanitize, validate and save article."""
-    # Stage 0: Sanitize formatting
+    # Stage 0: Sanitize formatting — force fix even if passed as tuple
+    if isinstance(article, (list, tuple)):
+        article = article[0]
     article = sanitize_article(article)
 
     # Save article
     try:
         path = save_article(article)
         logger.info(f"Article saved: {path}")
+        # Verify the saved file is clean
+        with open(path, "r") as f:
+            saved = f.read()
+        import re
+        broken = sum(1 for l in saved.split("\n")
+                     if l.strip().startswith("```") and not re.match(r'^```[a-zA-Z]*\s*$', l.strip()))
+        if broken:
+            logger.warning(f"  ⚠️  Saved article has {broken} broken fences — re-saving with forced fix")
+            fixed = sanitize_article({"title": "", "content": saved, "summary": ""})
+            with open(path, "w") as f:
+                f.write(fixed["content"])
     except Exception as e:
         logger.warning(f"Could not save article: {e}")
 
