@@ -38,6 +38,7 @@ from tools.privacy_filter import (
     validate_article_safe,
     add_privacy_instruction_to_prompt,
 )
+from tools.format_sanitizer import sanitize_article
 from tools.publishers.devto import DevToPublisher
 from tools.publishers.juejin import JuejinPublisher
 from tools.publishers.csdn_browser import CsdNBrowserPublisher
@@ -163,13 +164,11 @@ def build_pipeline(
 
 
 def _validate_and_save(article: dict) -> dict:
-    """Validate article for privacy, save, and return.
+    """Sanitize, validate and save article."""
+    # Stage 0: Sanitize formatting
+    article = sanitize_article(article)
 
-    Stage 2 privacy check — runs AFTER generation, BEFORE publishing.
-    If secrets are detected, the article is flagged but not blocked
-    (the pipeline continues; the check result is logged for review).
-    """
-    # Save article regardless
+    # Save article
     try:
         path = save_article(article)
         logger.info(f"Article saved: {path}")
@@ -378,8 +377,11 @@ def _publish_interview(date: str, publishers: list) -> None:
                     break
             body = parts[2].strip()
 
-    # Clean up code formatting before publishing
+    # Sanitize formatting
     body = _clean_code_blocks(body)
+    sanitized = sanitize_article({"title": title, "content": body, "summary": ""})
+    title = sanitized["title"]
+    body = sanitized["content"]
 
     # Publish to Dev.to
     devto = next((p for p in publishers if p.name == "devto"), None)
