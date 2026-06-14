@@ -30,6 +30,7 @@ from agents.write_agent import WriteAgent
 from agents.judge_agent import JudgeAgent
 from agents.adapt_agent import AdaptAgent
 from agents.interview_agent import InterviewAgent
+from agents.polisher_agent import PolisherAgent
 from agents.publish_agent import PublishAgent
 
 from tools.article_formatter import save_article
@@ -75,6 +76,7 @@ def build_pipeline(
         write_agent = WriteAgent(observer=observer, claude_client=claude_client)
         judge_agent = JudgeAgent(observer=observer, claude_client=claude_client)
         from tools.experience_store import ExperienceStore
+        polisher_agent = PolisherAgent(observer=observer, claude_client=claude_client)
         write_stage = JudgeLoopPipeline(
             write_agent=write_agent,
             judge_agent=judge_agent,
@@ -83,6 +85,7 @@ def build_pipeline(
             pass_threshold=70,
             experience_store=ExperienceStore(),
             renderer=TemplateRenderer(),
+            polisher=polisher_agent,
         )
     else:
         write_stage = WriteAgent(observer=observer, claude_client=claude_client)

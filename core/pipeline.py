@@ -215,6 +215,7 @@ class JudgeLoopPipeline:
         pass_threshold: int = 70,
         experience_store: Any = None,
         renderer: Any = None,
+        polisher: Any = None,
     ):
         self.write_agent = write_agent
         self.judge_agent = judge_agent
@@ -223,6 +224,7 @@ class JudgeLoopPipeline:
         self.pass_threshold = pass_threshold
         self.experience_store = experience_store
         self.renderer = renderer
+        self.polisher = polisher
 
     def run(self, input_data: Any) -> tuple[dict, list[dict]]:
         """
@@ -266,6 +268,21 @@ class JudgeLoopPipeline:
                     article["wechat_html"] = self.renderer.render(article, "wechat_mp")
                 except Exception as e:
                     self.observer.log(f"Template render failed: {e}")
+
+            # Polish — improve writing quality (voice, flow, hooks, title)
+            if self.polisher and iteration == 0:
+                try:
+                    polished = self.polisher.run({
+                        "title": article.get("title", ""),
+                        "content": article.get("content", ""),
+                        "tags": article.get("tags", []),
+                    })
+                    article["title"] = polished.get("title", article.get("title", ""))
+                    article["content"] = polished.get("content", article.get("content", ""))
+                    article["polish_changes"] = polished.get("changes_made", [])
+                    self.observer.log(f"Polisher: {len(polished.get('changes_made', []))} changes")
+                except Exception as e:
+                    self.observer.log(f"Polisher skipped: {e}")
 
             # Judge
             judge_input = {
