@@ -1,5 +1,0 @@
-{"type": "agent_run", "agent": "capture", "run_id": "c02e976a1cbe", "duration_seconds": 15.577, "retry_count": 0, "token_usage": {"input": 876, "output": 506}, "error": null, "timestamp": "2026-06-11T10:07:04.518653"}
-{"type": "agent_run", "agent": "analyze", "run_id": "a250ca3ad7df", "duration_seconds": 22.83, "retry_count": 0, "token_usage": {"input": 831, "output": 714}, "error": null, "timestamp": "2026-06-11T10:07:27.349370"}
-{"type": "agent_run", "agent": "write", "run_id": "5338c98e6633", "duration_seconds": 209.147, "retry_count": 0, "token_usage": {"input": 1894, "output": 6759}, "error": null, "timestamp": "2026-06-11T10:10:56.496514"}
-{"type": "agent_run", "agent": "adapt", "run_id": "afa97b0b7943", "duration_seconds": 95.234, "retry_count": 0, "token_usage": {"input": 3288, "output": 3289}, "error": null, "timestamp": "2026-06-11T10:12:31.736288"}
-{"type": "agent_run", "agent": "publish", "run_id": "e4cf7375b504", "duration_seconds": 1.918, "retry_count": 0, "token_usage": {"input": 0, "output": 0}, "error": null, "timestamp": "2026-06-11T10:12:33.655445"}
