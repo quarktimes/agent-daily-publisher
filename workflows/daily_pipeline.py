@@ -172,6 +172,40 @@ def build_pipeline(
     return orchestrator, stash
 
 
+def _quick_fix_title(title: str) -> str:
+    """Replace placeholder/bad titles with something clickable."""
+    import re
+    bad_patterns = [
+        r"^\d{4}-\d{2}-\d{2}$",         # 日期
+        r"^#+$",                          # 纯 #
+        r"^###",                          # 章节标题
+        r"^日期",                          # 日期开头
+        r"^在 202\d",                     # "在202x年的今天"
+        r"^今天",                          # "今天在开发"
+        r"^最近",                          # "最近在搞"
+        r"^作为一名",                       # "作为一名..."
+        r"^---",                          # Markdown 分隔线
+    ]
+    for pat in bad_patterns:
+        if re.match(pat, title.strip()):
+            return None  # Signal to use fallback
+    if len(title.strip()) < 5:
+        return None
+    return title
+
+
+_FALLBACK_TITLES = [
+    "LLM 输出总崩？一行正则搞定它",
+    "还在死磕 Prompt？试试后处理管道",
+    "AI 写代码很行，写文档？不行。",
+    "生产环境又报警了，这次是因为___",
+    "一个 Python 脚本，救了 Markdown 渲染",
+    "3 个习惯，让你每天少浪费 30% 的 Token",
+    "当 Agent 开始乱说话：一个格式修复实录",
+    "放弃调 Prompt 了，我换了个思路",
+]
+
+
 def _validate_and_save(article: dict) -> dict:
     """Validate privacy, save, generate cover. Content already rendered by JudgeLoopPipeline."""
     if isinstance(article, (list, tuple)):
@@ -179,6 +213,16 @@ def _validate_and_save(article: dict) -> dict:
     if not isinstance(article, dict):
         logger.error(f"Expected dict article, got {type(article)}")
         return {}
+
+    # Fix bad title
+    raw_title = article.get("title", "")
+    fixed = _quick_fix_title(raw_title)
+    if fixed is None:
+        import random
+        fallback = random.choice(_FALLBACK_TITLES)
+        logger.warning(f"Bad title '{raw_title}' → replaced with '{fallback}'")
+        article["title"] = fallback
+        article["_title_fixed"] = True
 
     # Save rendered Markdown
     try:
@@ -197,7 +241,7 @@ def _validate_and_save(article: dict) -> dict:
     # Generate cover image
     try:
         cover_path = generate_cover(
-            article.get("title", ""),
+            article.get("title", "技术复盘"),
             tags=article.get("tags", []),
         )
         if cover_path:
