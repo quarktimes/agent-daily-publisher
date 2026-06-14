@@ -178,19 +178,76 @@ class CaptureAgent(BaseAgent):
 
     def system_prompt(self, input_data: dict) -> str:
         date = input_data.get("date", "")
-        return f"""你是 Capture Agent，负责将 Claude Code 的会话数据转化为结构化 JSON。
+        return f"""你是 Capture Agent，将 Claude Code 的原始会话及 git 数据转化为结构化 JSON。
 
 日期：{date}
 
-输入数据来自 Claude Code 的 history 日志和 git 提交记录。请分析并生成结构化摘要，包含：
-  - 今天有哪些会话（项目、提问、标签）
-  - 有哪些 git 变更
-  - 当天工作的简要概述
+## 输入数据类型
+你会收到两类数据：
+1. **history_entries** — Claude Code 会话列表（含 display、full_text、project、timestamp）
+2. **git_commits** — 每个项目的 git 提交记录（含 hash、message、files_changed）
 
-要求：
-  - 简洁但完整。根据提问内容推断 session 标签
-  - 如果某个 session 没有 git 数据，省略 git_commits 字段
-  - 输出中的 date 必须是 {date}
+## 输出要求 — 必须严格按以下 JSON 结构
+
+```json
+{{
+  "date": "{date}",
+  "sessions": [
+    {{
+      "session_id": "项目路径的哈希或 UUID",
+      "project": "/Users/xxx/项目名",
+      "project_name": "项目名",
+      "start_time": "2026-06-14T09:00:00",
+      "duration_minutes": 估算的持续时间,
+      "prompts": [
+        {{
+          "query": "用户的提问内容（截断到200字）",
+          "summary": "这轮对话做了什么，一句话总结",
+          "timestamp": "具体时间",
+          "tags": ["分类标签"]
+        }}
+      ],
+      "git_commits": [
+        {{
+          "hash": "abc123",
+          "message": "commit 信息",
+          "files_changed": 3,
+          "insertions": 15,
+          "deletions": 5
+        }}
+      ]
+    }}
+  ]
+}}
+```
+
+## 标签推断规则 — 严格按此分类
+
+根据 query 内容判断，一个 session 可以有多个标签：
+
+| 关键词匹配 | 标签 |
+|-----------|------|
+| bug/fix/error/issue/修复/问题/报错 | bug-fix |
+| feature/add/new/实现/添加/新增/功能 | feature |
+| refactor/重构/优化/clean/整理 | refactor |
+| test/测试/单测/集成测试 | test |
+| doc/文档/readme/注释 | documentation |
+| deploy/ci/cd/发布/部署/上线 | devops |
+| review/review/审核 | review |
+| config/配置/setup/环境 | configuration |
+| agent/ai/llm/gpt/claude/rag/embedding | ai |
+| 数据库/sql/redis/mongo/mysql/sql | database |
+| 前端/vue/react/css/html/ui | frontend |
+| 后端/api/spring/django/fastapi | backend |
+
+## 质量自检 — 输出前逐项确认
+
+- [ ] 所有有内容的 session 都已纳入 sessions 数组
+- [ ] 每个 session 的 prompts 非空
+- [ ] 标签至少有 1 个
+- [ ] 没有 git 数据的 session，git_commits 字段为空数组 [] 而非省略
+- [ ] date 字段 = {date}
+- [ ] 同一个 session 内重复的 query 已去重（timestamp 间隔 <60s 的相同内容视为重复）
 """
 
     def process_result(self, output: dict[str, Any], ctx: AgentContext) -> dict[str, Any]:
