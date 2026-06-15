@@ -504,11 +504,12 @@ def _publish_interview(date: str, publishers: list, title_agent: Any | None = No
 要求：
 - 保留所有代码块、技术名词、数字（ReAct, MCP, PgVector, LangChain4j等）原样
 - 代码注释翻译成英文
-- 标题翻译成吸引人的英文技术标题
+- 逐段翻译，不省略任何内容
 - 语气：professional but conversational, like a senior engineer
-- 不要省略任何内容，逐段翻译
 
-输出 JSON：{{"title": "英文标题", "content": "翻译后的英文内容"}}"""
+输出 JSON：
+{{"title": "技术性英文标题（不加任何前缀）", "content": "翻译后的英文内容"}}
+例如：{{"title": "Fault-Tolerant ReAct Loop Design for Partial Tool Call Failures", "content": "..."}}"""
 
             response = claude_client.messages.create(
                 model="claude-sonnet-4-6",
@@ -529,10 +530,11 @@ def _publish_interview(date: str, publishers: list, title_agent: Any | None = No
             logger.debug(f"Interview translation skip: {e}")
 
     # Publish English version to Dev.to
+    devto_title = f"AI Interview Questions | {english_title}" if "AI Interview Questions" not in english_title else english_title
     devto = next((p for p in publishers if p.name == "devto"), None)
     if devto and devto.validate_config():
         result = devto.publish(
-            title=english_title,
+            title=devto_title,
             content=english_body,
             tags=["ai", "interview", "career", "agents"],
         )
@@ -540,10 +542,13 @@ def _publish_interview(date: str, publishers: list, title_agent: Any | None = No
             logger.info(f"📤 Interview published to Dev.to: {result.url}")
 
     # Publish Chinese version to WeChat MP (as draft)
+    wechat_title = title
+    if not title.startswith("AI面试题") and not title.startswith("AI 面试题"):
+        wechat_title = f"AI面试题 | {title}"
     wechat = next((p for p in publishers if p.name == "wechat_mp"), None)
     if wechat and wechat.validate_config():
         result = wechat.publish(
-            title=title[:60],
+            title=wechat_title[:60],
             content=chinese_body,
             tags=["AI", "面试", "技术成长"],
         )
