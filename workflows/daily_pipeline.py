@@ -650,6 +650,12 @@ def _publish_usage_analysis(date: str, publishers: list) -> None:
         if result.success:
             logger.info(f"📤 Usage analysis published to Dev.to: {result.url}")
 
+    wechat = next((p for p in publishers if p.name == "wechat_mp"), None)
+    if wechat and wechat.validate_config():
+        result = wechat.publish(title=title[:60], content=body, tags=["AI", "效率工具"])
+        if result.success:
+            logger.info(f"📤 Usage analysis draft saved to WeChat MP: {result.url}")
+
 
 def _extract_article(data: dict) -> dict:
     """Extract article from various pipeline stage output formats."""
