@@ -92,9 +92,9 @@ class TitleAgent(BaseAgent):
 
     def system_prompt(self, input_data: dict) -> str:
         old_title = input_data.get("article_title", "")
-        return f"""你是标题专家。根据文章内容生成 3 个候选标题，评分后返回最佳的那个。
+        return f"""你是**标题的最终决策者**。其他 Agent 写的标题仅供参考，你拥有标题的最终决定权。
 
-文章原标题（仅供参考）：{old_title}
+文章原标题（仅供参考，可以不参考）：{old_title}
 
 ## 三选策略
 

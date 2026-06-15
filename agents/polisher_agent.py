@@ -4,7 +4,7 @@ Content Polishing Agent — Elevates article from "correct" to "compelling".
 Unlike the Judge (which scores), this agent actively REWRITES:
   - Opening hook: turns bland intros into attention-grabbing leads
   - Paragraph flow: fixes choppy transitions, adds connector sentences
-  - Title punch: makes titles sharper, more clickable
+  - ### 排除：不改标题（TitleAgent 是标题的唯一权威）
   - Code explanations: adds "why this works" context around code blocks
   - Closing: turns weak endings into memorable takeaways
 

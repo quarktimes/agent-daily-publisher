@@ -367,6 +367,13 @@ source: agent-daily-publisher
 ---
 
 """
+    content = str(content)
+    # Fix H1 title to include prefix
+    import re as _re
+    if _re.match(r'^# Claude Code 诊断', content):
+        content = _re.sub(r'^# Claude Code 诊断', '# Claude Code技巧', content)
+    elif _re.match(r'^# Claude Code 使用复盘', content):
+        content = _re.sub(r'^# Claude Code 使用复盘', '# Claude Code技巧', content)
     with open(filepath, "w", encoding="utf-8") as f:
         f.write(frontmatter + content)
 
@@ -587,6 +594,9 @@ def _save_usage_analysis(data: dict) -> None:
     filepath = out_dir / f"{datetime.now().strftime('%Y-%m-%d')}_claude_usage.md"
     content = data.get("content", "")
     title = data.get("title", "Claude Code 使用分析")
+    prefix = "Claude Code技巧 | "
+    if not title.startswith("Claude Code技巧"):
+        title = prefix + title
     frontmatter = f"""---
 title: {title}
 date: "{datetime.now().strftime('%Y-%m-%d')}"
@@ -595,6 +605,13 @@ source: agent-daily-publisher
 ---
 
 """
+    content = str(content)
+    # Fix H1 title to include prefix
+    import re as _re
+    if _re.match(r'^# Claude Code 诊断', content):
+        content = _re.sub(r'^# Claude Code 诊断', '# Claude Code技巧', content)
+    elif _re.match(r'^# Claude Code 使用复盘', content):
+        content = _re.sub(r'^# Claude Code 使用复盘', '# Claude Code技巧', content)
     with open(filepath, "w", encoding="utf-8") as f:
         f.write(frontmatter + content)
     logger.info(f"📊 Usage analysis saved: {filepath}")
