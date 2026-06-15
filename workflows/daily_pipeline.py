@@ -451,7 +451,7 @@ def _clean_code_blocks(text: str) -> str:
     return re.sub(r'```(\w*)\n(.*?)```', _fix_block, text, flags=re.DOTALL)
 
 
-def _publish_interview(date: str, publishers: list, title_agent: Any | None = None) -> None:
+def _publish_interview(date: str, publishers: list, title_agent: Any | None = None, claude_client: Any = None) -> None:
     """Publish interview questions to Dev.to as a separate article."""
     import shutil
     import glob
@@ -492,25 +492,59 @@ def _publish_interview(date: str, publishers: list, title_agent: Any | None = No
             logger.debug(f"Interview title skip: {e}")
 
     # Clean code blocks
-    body = _clean_code_blocks(body)
+    chinese_body = _clean_code_blocks(body)
 
-    # Publish to Dev.to
+    # Translate to English for Dev.to
+    english_body = chinese_body
+    english_title = title
+    if claude_client and len(chinese_body) > 200:
+        try:
+            translation_prompt = f"""你是资深技术翻译，专攻 AI/Agent 领域的中译英。翻译以下中文面试题到英文。
+
+要求：
+- 保留所有代码块、技术名词、数字（ReAct, MCP, PgVector, LangChain4j等）原样
+- 代码注释翻译成英文
+- 标题翻译成吸引人的英文技术标题
+- 语气：professional but conversational, like a senior engineer
+- 不要省略任何内容，逐段翻译
+
+输出 JSON：{{"title": "英文标题", "content": "翻译后的英文内容"}}"""
+
+            response = claude_client.messages.create(
+                model="claude-sonnet-4-6",
+                max_tokens=8192,
+                system=translation_prompt,
+                messages=[{"role": "user", "content": chinese_body[:6000]}],
+            )
+            text = "".join(getattr(b, "text", "") or "" for b in getattr(response, "content", []))
+            import re
+            import json as _json
+            match = re.search(r'\{.*\}', text, re.DOTALL)
+            if match:
+                translated = _json.loads(match.group())
+                english_title = translated.get("title", title)
+                english_body = translated.get("content", chinese_body)
+                logger.info(f"Interview translated to English")
+        except Exception as e:
+            logger.debug(f"Interview translation skip: {e}")
+
+    # Publish English version to Dev.to
     devto = next((p for p in publishers if p.name == "devto"), None)
     if devto and devto.validate_config():
         result = devto.publish(
-            title=title,
-            content=body,
+            title=english_title,
+            content=english_body,
             tags=["ai", "interview", "career", "agents"],
         )
         if result.success:
             logger.info(f"📤 Interview published to Dev.to: {result.url}")
 
-    # Publish to WeChat MP (as draft)
+    # Publish Chinese version to WeChat MP (as draft)
     wechat = next((p for p in publishers if p.name == "wechat_mp"), None)
     if wechat and wechat.validate_config():
         result = wechat.publish(
             title=title[:60],
-            content=body,
+            content=chinese_body,
             tags=["AI", "面试", "技术成长"],
         )
         if result.success:
@@ -695,7 +729,7 @@ def main():
             print(f"  ⏭️  Pipeline already completed for {args.date}")
             print(f"  {pipeline_state.summary()}")
             # Still try to publish interview if it hasn't been published
-            _publish_interview(args.date, publishers, interview_title_agent)
+            _publish_interview(args.date, publishers, interview_title_agent, claude)
             return
 
     # If there are partial completions, we can resume
@@ -776,7 +810,7 @@ def main():
 
         # Publish interview to Dev.to if there's a matching publisher
         try:
-            _publish_interview(args.date, publishers, interview_title_agent)
+            _publish_interview(args.date, publishers, interview_title_agent, claude)
         except Exception as e:
             print(f"  - Interview publish skipped: {e}")
 
