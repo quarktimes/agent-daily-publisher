@@ -710,6 +710,8 @@ def main():
                        help="Actually publish to platforms (default: dry run)")
     parser.add_argument("--no-judge", action="store_true",
                        help="Skip quality evaluation loop")
+    parser.add_argument("--force", action="store_true",
+                       help="Clear cache and force full rerun")
     parser.add_argument("--verbose", "-v", action="store_true",
                        help="Verbose output")
     args = parser.parse_args()
@@ -807,7 +809,17 @@ def main():
     # Build and run pipeline (with resume support)
     from core.state import PipelineState
     pipeline_stash = {}
-    from core.state import PipelineState
+
+    # Force mode: clear cache and rerun from scratch
+    if args.force:
+        state_file = os.path.join(
+            os.path.dirname(os.path.dirname(__file__)),
+            "data", "pipeline_state", f"{args.date}.json"
+        )
+        if os.path.exists(state_file):
+            os.remove(state_file)
+            print(f"  🔄 --force: cache cleared for {args.date}")
+
     pipeline_state = PipelineState(args.date)
 
     # Check if we can resume from a partial run
