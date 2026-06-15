@@ -563,7 +563,7 @@ def _publish_interview(date: str, publishers: list, title_agent: Any | None = No
             logger.info(f"📤 Interview draft saved to WeChat MP: {result.url}")
 
 
-def _run_usage_analysis(date: str, claude: any, observer: any, stash: dict, state: any) -> None:
+def _run_usage_analysis(date: str, claude: any, observer: any, stash: dict, state: any, publishers: list | None = None) -> None:
     """Analyze Claude Code usage patterns from daily sessions."""
     if state.is_completed("usage_analysis"):
         logger.info("  ⏭️  Usage analysis: skipped (cached)")
@@ -584,6 +584,11 @@ def _run_usage_analysis(date: str, claude: any, observer: any, stash: dict, stat
     _save_usage_analysis(result)
     state.complete_stage("usage_analysis", {"patterns": len(result.get("positive_patterns", []))})
     print(f"  ✓ Usage analysis: {len(result.get('positive_patterns', []))} positives, {len(result.get('negative_patterns', []))} improvements")
+    # Publish to Dev.to
+    try:
+        _publish_usage_analysis(date, publishers or [])
+    except Exception as e:
+        print(f"  - Usage analysis publish skipped: {e}")
 
 
 def _save_usage_analysis(data: dict) -> None:
@@ -615,6 +620,35 @@ source: agent-daily-publisher
     with open(filepath, "w", encoding="utf-8") as f:
         f.write(frontmatter + content)
     logger.info(f"📊 Usage analysis saved: {filepath}")
+
+
+def _publish_usage_analysis(date: str, publishers: list) -> None:
+    """Publish usage analysis report to Dev.to."""
+    from pathlib import Path
+    usage_dir = Path(__file__).parent.parent / "data" / "usage"
+    pattern = f"{date}_claude_usage*"
+    files = sorted(usage_dir.glob(pattern))
+    if not files:
+        logger.debug("No usage report found for publishing")
+        return
+
+    content = files[-1].read_text(encoding="utf-8")
+    title = f"Claude Code技巧 | {date}"
+    body = content
+    if content.startswith("---"):
+        parts = content.split("---", 2)
+        if len(parts) >= 3:
+            for line in parts[1].split("\n"):
+                if line.startswith("title:"):
+                    title = line.replace("title:", "").strip().strip('"')
+                    break
+            body = parts[2].strip()
+
+    devto = next((p for p in publishers if p.name == "devto"), None)
+    if devto and devto.validate_config():
+        result = devto.publish(title=title, content=body, tags=["claude-code", "productivity", "ai"])
+        if result.success:
+            logger.info(f"📤 Usage analysis published to Dev.to: {result.url}")
 
 
 def _extract_article(data: dict) -> dict:
@@ -752,6 +786,8 @@ def main():
             print(f"  {pipeline_state.summary()}")
             # Still try to publish interview if it hasn't been published
             _publish_interview(args.date, publishers, interview_title_agent, claude)
+            if not pipeline_state.is_completed("usage_analysis"):
+                _run_usage_analysis(args.date, claude, observer, pipeline_stash, pipeline_state, publishers)
             return
 
     # If there are partial completions, we can resume
@@ -838,7 +874,7 @@ def main():
 
         # Claude Code Usage Analysis
         try:
-            _run_usage_analysis(args.date, claude, observer, pipeline_stash, pipeline_state)
+            _run_usage_analysis(args.date, claude, observer, pipeline_stash, pipeline_state, publishers)
         except Exception as e:
             print(f"  - Usage analysis skipped: {e}")
 
