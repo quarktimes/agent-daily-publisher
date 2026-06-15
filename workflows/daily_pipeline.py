@@ -166,14 +166,34 @@ def build_pipeline(
         critical=False,  # Adapt can fail without aborting
     )
 
+    def _check_versions(data: dict) -> dict:
+        """Language gate: retranslate Dev.to version if Chinese."""
+        import re as _re
+        versions = data.get("versions", []) if isinstance(data, dict) else data
+        if not isinstance(versions, list):
+            versions = []
+        for v in versions:
+            if v.get("platform") == "devto":
+                cn_chars = len(_re.findall(r'[一-鿿]', v.get("content", "")[:500]))
+                if cn_chars > 10:
+                    logger.warning(f"⚠️  Dev.to version has {cn_chars} Chinese chars, retranslating...")
+                    new_title, new_content = _ensure_english(
+                        v.get("content", ""), v.get("title", ""), claude, "main-article"
+                    )
+                    if new_content:
+                        v["title"] = new_title
+                        v["content"] = new_content
+                    else:
+                        # Block — remove devto version
+                        versions.remove(v)
+                        logger.warning("  Dev.to version blocked (still Chinese)")
+        return {"versions": versions, "publish": publish_mode}
+
     orchestrator.add_stage(
         "publish",
         publish_agent,
-        input_transform=lambda data: {
-            "versions": data.get("versions", []) if isinstance(data, dict) else data,
-            "publish": publish_mode,
-        },
-        critical=False,  # Publish failure doesn't mean pipeline failure
+        input_transform=_check_versions,
+        critical=False,
     )
 
     return orchestrator, stash
@@ -536,13 +556,19 @@ def _publish_interview(date: str, publishers: list, title_agent: Any | None = No
         except Exception as e:
             logger.debug(f"Interview translation skip: {e}")
 
+    # Language gate: verify + retranslate if needed
+    final_title, final_body = _ensure_english(english_body, english_title, claude_client, "interview")
+    devto_title = f"AI Interview Questions | {final_title}" if "AI Interview Questions" not in final_title else final_title
+    devto_content = final_body
+
     # Publish English version to Dev.to
-    devto_title = f"AI Interview Questions | {english_title}" if "AI Interview Questions" not in english_title else english_title
+    if not devto_content:
+        logger.warning("  Interview Dev.to publish blocked: content still Chinese after retranslation")
     devto = next((p for p in publishers if p.name == "devto"), None)
-    if devto and devto.validate_config():
+    if devto and devto.validate_config() and devto_content:
         result = devto.publish(
             title=devto_title,
-            content=english_body,
+            content=devto_content,
             tags=["ai", "interview", "career", "agents"],
         )
         if result.success:
@@ -674,17 +700,70 @@ Output JSON: {"title": "English title", "content": "English content"}"""
         except Exception as e:
             logger.debug(f"Usage report translation skip: {e}")
 
+    # Language gate: check + retranslate if needed
+    devto_title, devto_body = _ensure_english(english_body, english_title, claude_client, "usage-analysis")
     devto = next((p for p in publishers if p.name == "devto"), None)
-    if devto and devto.validate_config():
-        result = devto.publish(title=english_title, content=english_body, tags=["claude-code", "productivity", "ai"])
+    if devto and devto.validate_config() and devto_body:
+        result = devto.publish(title=devto_title, content=devto_body, tags=["claude-code", "productivity", "ai"])
         if result.success:
             logger.info(f"📤 Usage analysis published to Dev.to: {result.url}")
+    elif devto and not devto_body:
+        logger.warning("  Usage analysis Dev.to publish blocked: content still Chinese")
 
     wechat = next((p for p in publishers if p.name == "wechat_mp"), None)
     if wechat and wechat.validate_config():
         result = wechat.publish(title=title[:60], content=chinese_body, tags=["AI", "效率工具"])
         if result.success:
             logger.info(f"📤 Usage analysis draft saved to WeChat MP: {result.url}")
+
+
+def _ensure_english(content: str, title: str = "", claude_client: Any = None, context: str = "") -> tuple[str, str]:
+    """Detect Chinese content. If found, retranslate. Returns (title, content).
+
+    If still Chinese after retranslation, logs warning but returns as-is
+    (the caller decides whether to block or proceed).
+    """
+    import re
+    # Count Chinese characters (CJK Unified Ideographs block)
+    chinese_chars = len(re.findall(r'[一-鿿㐀-䶿]', content[:500]))
+    total_chars = len(re.sub(r'[\s\`\*\[\]\(\)#\-]', '', content[:500]))
+    ratio = chinese_chars / max(total_chars, 1)
+
+    if ratio < 0.05:
+        return title, content  # Already English
+
+    logger.warning(f"⚠️  Dev.to content is {ratio:.0%} Chinese (context: {context})")
+    if not claude_client:
+        return title, content
+
+    # Retranslate
+    prompt = f"""Detected Chinese in text meant for Dev.to (English platform).
+Translate this entire content to English. Keep code blocks, technical terms, numbers unchanged.
+
+Output JSON: {{"title": "English title or keep original: {title}", "content": "English translation"}}"""
+    try:
+        response = claude_client.messages.create(
+            model="claude-sonnet-4-6", max_tokens=8192,
+            system=prompt, messages=[{"role": "user", "content": content[:6000]}],
+        )
+        text = "".join(getattr(b, "text", "") or "" for b in getattr(response, "content", []))
+        match = re.search(r'\{.*\}', text, re.DOTALL)
+        if match:
+            import json as _json
+            translated = _json.loads(match.group())
+            retranslated_content = translated.get("content", content)
+            # Check again
+            cn2 = len(re.findall(r'[一-鿿]', retranslated_content[:500]))
+            if cn2 > 10:
+                logger.warning(f"  Still Chinese after retranslate, blocking Dev.to publish")
+                return title, ""  # Empty content signals "don't publish"
+            logger.info(f"  Retranslated successfully")
+            return translated.get("title", title), retranslated_content
+    except Exception as e:
+        logger.debug(f"Retranslation failed: {e}")
+
+    # Fallback: still Chinese but no claude available
+    return title, content
 
 
 def _extract_article(data: dict) -> dict:
