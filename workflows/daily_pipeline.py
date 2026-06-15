@@ -586,7 +586,7 @@ def _run_usage_analysis(date: str, claude: any, observer: any, stash: dict, stat
     print(f"  ✓ Usage analysis: {len(result.get('positive_patterns', []))} positives, {len(result.get('negative_patterns', []))} improvements")
     # Publish to Dev.to
     try:
-        _publish_usage_analysis(date, publishers or [])
+        _publish_usage_analysis(date, publishers or [], claude)
     except Exception as e:
         print(f"  - Usage analysis publish skipped: {e}")
 
@@ -622,8 +622,8 @@ source: agent-daily-publisher
     logger.info(f"📊 Usage analysis saved: {filepath}")
 
 
-def _publish_usage_analysis(date: str, publishers: list) -> None:
-    """Publish usage analysis report to Dev.to."""
+def _publish_usage_analysis(date: str, publishers: list, claude_client: Any | None = None) -> None:
+    """Publish usage analysis report to Dev.to (English) and WeChat (Chinese)."""
     from pathlib import Path
     usage_dir = Path(__file__).parent.parent / "data" / "usage"
     pattern = f"{date}_claude_usage*"
@@ -634,7 +634,7 @@ def _publish_usage_analysis(date: str, publishers: list) -> None:
 
     content = files[-1].read_text(encoding="utf-8")
     title = f"Claude Code技巧 | {date}"
-    body = content
+    chinese_body = content
     if content.startswith("---"):
         parts = content.split("---", 2)
         if len(parts) >= 3:
@@ -642,17 +642,47 @@ def _publish_usage_analysis(date: str, publishers: list) -> None:
                 if line.startswith("title:"):
                     title = line.replace("title:", "").strip().strip('"')
                     break
-            body = parts[2].strip()
+            chinese_body = parts[2].strip()
+
+    # Translate to English for Dev.to
+    english_title = title
+    english_body = chinese_body
+    if claude_client and len(chinese_body) > 200:
+        try:
+            prompt = """You are a technical translator specializing in AI/developer tools. Translate this Claude Code usage analysis report from Chinese to English.
+
+Requirements:
+- Keep all technical terms (ReAct, PgVector, Tool Calling, etc.) unchanged
+- Keep code blocks unchanged
+- Translate title (format: "Claude Code Tips | English title")
+- Professional but conversational tone
+- Translate every paragraph, do not omit any content
+
+Output JSON: {"title": "English title", "content": "English content"}"""
+            response = claude_client.messages.create(
+                model="claude-sonnet-4-6", max_tokens=8192,
+                system=prompt, messages=[{"role": "user", "content": chinese_body[:6000]}],
+            )
+            text = "".join(getattr(b, "text", "") or "" for b in getattr(response, "content", []))
+            import re, json as _json
+            match = re.search(r'\{.*\}', text, re.DOTALL)
+            if match:
+                translated = _json.loads(match.group())
+                english_title = translated.get("title", title)
+                english_body = translated.get("content", chinese_body)
+                logger.info("Usage report translated to English")
+        except Exception as e:
+            logger.debug(f"Usage report translation skip: {e}")
 
     devto = next((p for p in publishers if p.name == "devto"), None)
     if devto and devto.validate_config():
-        result = devto.publish(title=title, content=body, tags=["claude-code", "productivity", "ai"])
+        result = devto.publish(title=english_title, content=english_body, tags=["claude-code", "productivity", "ai"])
         if result.success:
             logger.info(f"📤 Usage analysis published to Dev.to: {result.url}")
 
     wechat = next((p for p in publishers if p.name == "wechat_mp"), None)
     if wechat and wechat.validate_config():
-        result = wechat.publish(title=title[:60], content=body, tags=["AI", "效率工具"])
+        result = wechat.publish(title=title[:60], content=chinese_body, tags=["AI", "效率工具"])
         if result.success:
             logger.info(f"📤 Usage analysis draft saved to WeChat MP: {result.url}")
 
