@@ -451,13 +451,12 @@ def _clean_code_blocks(text: str) -> str:
     return re.sub(r'```(\w*)\n(.*?)```', _fix_block, text, flags=re.DOTALL)
 
 
-def _publish_interview(date: str, publishers: list) -> None:
+def _publish_interview(date: str, publishers: list, title_agent: Any | None = None) -> None:
     """Publish interview questions to Dev.to as a separate article."""
     import shutil
     import glob
     from pathlib import Path
 
-    # Find the latest interview file for this date
     interview_dir = Path(__file__).parent.parent / "data" / "interviews"
     pattern = f"{date}_面试题_*"
     files = sorted(interview_dir.glob(pattern))
@@ -479,6 +478,19 @@ def _publish_interview(date: str, publishers: list) -> None:
                     break
             body = parts[2].strip()
 
+    # TitleAgent optimization
+    if title_agent and len(body) > 200:
+        try:
+            tr = title_agent.run({"article_title": title, "article_content": body[:3000], "summary": "", "tags": []})
+            candidates = tr.get("candidates", [])
+            if candidates:
+                best = max(candidates, key=lambda c: c.get("score", 0))
+                if best.get("score", 0) >= 60 and best.get("title"):
+                    logger.info(f"Interview TitleAgent: '{title[:30]}' → '{best['title']}'")
+                    title = best["title"]
+        except Exception as e:
+            logger.debug(f"Interview title skip: {e}")
+
     # Clean code blocks
     body = _clean_code_blocks(body)
 
@@ -497,7 +509,7 @@ def _publish_interview(date: str, publishers: list) -> None:
     wechat = next((p for p in publishers if p.name == "wechat_mp"), None)
     if wechat and wechat.validate_config():
         result = wechat.publish(
-            title=f"AI面试题 | {date}",
+            title=title[:60],
             content=body,
             tags=["AI", "面试", "技术成长"],
         )
@@ -603,6 +615,8 @@ def main():
     # Configure publishers
     publishers = []
     enabled_platforms = set()
+    from agents.title_agent import TitleAgent
+    interview_title_agent = TitleAgent(observer=observer, claude_client=claude) if not isinstance(claude, _MockClaude) else None
     config_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "config")
 
     # Load platform config
@@ -681,7 +695,7 @@ def main():
             print(f"  ⏭️  Pipeline already completed for {args.date}")
             print(f"  {pipeline_state.summary()}")
             # Still try to publish interview if it hasn't been published
-            _publish_interview(args.date, publishers)
+            _publish_interview(args.date, publishers, interview_title_agent)
             return
 
     # If there are partial completions, we can resume
@@ -762,7 +776,7 @@ def main():
 
         # Publish interview to Dev.to if there's a matching publisher
         try:
-            _publish_interview(args.date, publishers)
+            _publish_interview(args.date, publishers, interview_title_agent)
         except Exception as e:
             print(f"  - Interview publish skipped: {e}")
 

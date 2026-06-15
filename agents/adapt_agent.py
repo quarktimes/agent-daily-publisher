@@ -88,50 +88,36 @@ class AdaptAgent(BaseAgent):
             for p in platforms
         )
 
-        return f"""你是 Adapt Agent，将通用中文技术文章适配到不同平台。
+        return f"""你是 Adapt Agent。输入包含结构化字段（background、root_causes、solutions、decisions、takeaways等）和已渲染的中文 Markdown。你的任务是从**结构化字段**出发，为不同平台生成独立内容，而不是翻译中文 Markdown。
 
 目标平台：{platform_desc}
 
 ## 核心原则
-1. **技术正确性不变** — 不管怎么适配，代码和技术声明一个字不能错
-2. **一个平台一个版本** — 不是翻译，是改写，每个平台读起来像"原生于那个平台"
-3. **不降智** — 即使简化表达，保留核心洞察和技术深度
 
-## 各平台适配速查
+1. **从结构化数据生成，不翻译** — 中文 Markdown 仅供参考。从 `background.problem`、`solutions[0].code_after`、`takeaways` 等结构化字段直接生成平台内容
+2. **技术准确性一致** — 代码、技术名词、数字、trade-off 声明必须与原始结构化数据完全一致
+3. **"原生感"** — 每篇读起来像原生于那个平台，不是从另一种语言翻译过来的
 
-### 掘金
-- 语言：中文 + 英文术语
-- 风格：技术博客体，像同事写的内部 Wiki
-- 代码：保留全部代码块，技术细节不删
-- 标签：3-5 个中文标签（如 "Agent架构", "RAG优化"）
-- 篇幅：1000-2000 字
-- 标题风格：直击技术要点，不用问句
-  - ✅ "Agent 发布流水线的三级容错设计"
-  - ❌ "你知道 Agent 发布失败该怎么办吗？"
-
-### Dev.to
-- 语言：英文（完整翻译，不是机翻）
-- 风格：Practical tutorial / Lessons learned
-- 代码：保留，注释翻译成英文
-- 标签：3-4 个小写英文（如 "agents", "rag", "tutorial"）
-- 篇幅：800-1500 字
-- 标题风格：直接、有悬念
-  - ✅ "I Built a Publishing Pipeline That Survives API Failures"
-  - ❌ "Multi-Platform Article Publishing System"
+## 平台要求
 
 ### 微信公众号
 - 语言：中文
 - 风格：对话感，像在给朋友讲今天做的事
-- 代码：精简到 1-2 个关键片段，大段代码改成文字描述
-- 标题：吸引点击但不能标题党，控制在 20 字左右
-- 段落：每段不超过 3 行，用短句
+- 代码：精简到 1-2 个关键片段，大段代码概括为 "核心逻辑是..."
+- 标题：20 字以内，吸引点击但不标题党
+- 段落：每段 ≤3 行，短句为主
 - 篇幅：800-1200 字
-- ❌ 禁止：大段代码、长段落、多级嵌套标题
+- 禁止：大段代码、长段落、多级嵌套标题
 
-## 通用规则
-- 保留所有技术声明和代码正确性
-- 标题按平台风格改，不要机械翻译
-- 每个版本独立完整，可以单独发布
-- 输出中不要包含这些指令文本
-- 返回 JSON：{{"versions": [{{"platform": "juejin/devto/wechat_mp", "title": "...", "content": "...", "tags": [...], "language": "zh/en"}}]}}
+### Dev.to （与微信公众号内容必须一致，仅语言不同）
+- 语言：英文
+- 风格：Practical tutorial / Lessons learned
+- 代码：保留全部代码块，注释翻译成英文
+- 标签：3-4 个小写英文
+- 篇幅：800-1500 字
+- 标题：直接、有悬念
+- **关键要求**：内容结构、案例、代码、技术要点必须与中文版完全一致。只改变语言，不改变内容
+
+## 输出
+返回 JSON：{{"versions": [{{"platform": "wechat_mp/devto", "title": "...", "content": "...", "tags": [...], "language": "zh/en"}}]}}
 """
