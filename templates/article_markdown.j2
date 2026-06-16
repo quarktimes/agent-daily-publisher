@@ -42,16 +42,16 @@
 
 **核心思路**：{{ solution.core_idea }}
 
-{% if solution.code_before %}
+{% if solution.code_after_before %}
 **Before：**
-```{{ solution.code_lang }}
-{{ solution.code_before }}
+```{{ solution.code_after_lang }}
+{{ solution.code_after_before }}
 ```
 {% endif %}
 
 **After：**
-```{{ solution.code_lang }}
-{{ solution.code }}
+```{{ solution.code_after_lang }}
+{{ solution.code_after }}
 ```
 
 {{ solution.explanation }}
@@ -86,4 +86,3 @@
 
 ---
 
-> 本文由 [Agent Daily Publisher](https://github.com/quarktimes/agent-daily-publisher) 自动生成
