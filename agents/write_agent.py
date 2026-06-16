@@ -154,18 +154,52 @@ def _parse_root_cause(s: str) -> dict:
 
 
 def _parse_solution(s: str) -> dict:
-    """Parse '标题；核心思路；代码...' format. Strip HTML tags."""
+    """Parse '标题；核心思路；代码' format. Separate code from explanation."""
     import re
     parts = s.split("；")
     title = parts[0].strip() if len(parts) > 0 else "方案"
     core = parts[1].strip() if len(parts) > 1 else ""
     rest = "；".join(parts[2:]) if len(parts) > 2 else core
-    # Strip HTML/XML tags that LLMs sometimes generate
     rest = re.sub(r'<code[^>]*>|</code>|<pre[^>]*>|</pre>', '', rest)
+
+    # Try to separate code from explanation text
+    # Code typically starts with: def, class, import, const, function, public, private, <variable> =, or ```\n
+    code_starters = (
+        r'(def\s+|class\s+|import\s+|from\s+|const\s+|var\s+|let\s+|function\s+|'
+        r'public\s+|private\s+|protected\s+|static\s+|'
+        r'\w+\s*=\s*(lambda|\(|\[|\{)|'
+        r'@\w+|#\s*(include|import|pragma))'
+    )
+    lines = rest.split("\n")
+    code_lines = []
+    explanation_lines = []
+    in_code = False
+    for line in lines:
+        stripped = line.strip()
+        if not in_code:
+            if re.match(code_starters, stripped):
+                in_code = True
+                code_lines.append(line)
+            else:
+                explanation_lines.append(line)
+        else:
+            code_lines.append(line)
+
+    code = "\n".join(code_lines).strip()
+    explanation = "\n".join(explanation_lines).strip()
+
+    # If no code detected, show as explanation only
+    if not code:
+        explanation = rest
+
+    # Strip variable placeholders like {image_url}
+    code = re.sub(r'\{([^}]+)\}', r'\1', code)
+    explanation = re.sub(r'\{([^}]+)\}', r'\1', explanation)
+
     return {
         "title": title, "core_idea": core,
-        "code_before": "", "code_after": rest,
-        "code_lang": "python", "explanation": rest,
+        "code_before": "", "code_after": code,
+        "code_lang": "python", "explanation": explanation,
     }
 
 
