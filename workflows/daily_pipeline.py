@@ -156,14 +156,41 @@ def build_pipeline(
     enabled_platforms = set(enabled_platforms or [])
     target_platforms = [v for k, v in all_platforms.items() if k in enabled_platforms or not enabled_platforms]
 
+    # Store article data for WeChat MDNice rendering
+    _article_for_wechat = {}
+
+    def _stash_article(data: dict) -> dict:
+        _article_for_wechat.update(_extract_article(data) if isinstance(data, dict) else {})
+        return {
+            "article": _extract_article(data),
+            "platforms": target_platforms,
+        }
+
+    def _inject_mdnice(data: dict) -> dict:
+        """Replace Adapt's plain WeChat version with MDNice HTML."""
+        if not _article_for_wechat:
+            return data
+        versions = data.get("versions", []) if isinstance(data, dict) else []
+        for v in versions:
+            if v.get("platform") == "wechat_mp":
+                try:
+                    from tools.template_renderer import TemplateRenderer
+                    renderer = TemplateRenderer()
+                    html = renderer.render(_article_for_wechat, "wechat_mp")
+                    if html and len(html) > 100:
+                        v["content"] = html
+                        logger.info("WeChat: MDNice HTML injected")
+                except Exception as e:
+                    logger.debug(f"MDNice inject skipped: {e}")
+                break
+        return data
+
     orchestrator.add_stage(
         "adapt",
         adapt_agent,
-        input_transform=lambda data: {
-            "article": _extract_article(data),
-            "platforms": target_platforms,
-        },
-        critical=False,  # Adapt can fail without aborting
+        input_transform=_stash_article,
+        output_transform=_inject_mdnice,
+        critical=False,
     )
 
     def _check_versions(data: dict) -> dict:

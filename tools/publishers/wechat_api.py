@@ -77,14 +77,30 @@ class WeChatApiPublisher(BasePublisher):
         try:
             access_token = self._get_access_token()
 
-            # Convert markdown to WeChat-compatible HTML
-            html_content = self._md_to_wechat_html(content)
+            # If content is already HTML (from MDNice template), skip markdown conversion
+            is_html = content.strip().startswith("<")
+            html_content = content if is_html else self._md_to_wechat_html(content)
+
+            # Render Mermaid diagrams to images (if mmdc available)
+            try:
+                from tools.mermaid_renderer import replace_mermaid_blocks_in_html
+                html_with_images = replace_mermaid_blocks_in_html(html_content, access_token)
+                if html_with_images != html_content:
+                    print(f"  → Mermaid diagrams converted to images")
+                    html_content = html_with_images
+            except Exception as e:
+                print(f"  → Mermaid rendering skipped: {e}")
+
             # Ensure thumbnail
             thumb = self.config.get("thumb_media_id", "") or self._ensure_thumb(access_token)
 
             # Truncate title to 64 chars at semantic boundary
             safe_title = self._truncate_title(title)
             digest = self._extract_digest(content)
+            # Strip HTML tags for digest if content is HTML
+            if is_html and digest and digest.startswith("<"):
+                import re
+                digest = re.sub(r'<[^>]+>', '', digest).strip()
             print(f"  → Title: '{safe_title}' ({len(safe_title)}c) | Digest: '{digest}'")
 
             # Build draft payload
@@ -280,10 +296,10 @@ class WeChatApiPublisher(BasePublisher):
         for line in content.split("\n"):
             stripped = line.strip().strip("#").strip()
             if stripped and len(stripped) > 10:
-                # Strip markdown and HTML
+                # Strip HTML first, THEN markdown (order matters!)
                 import re
-                clean = re.sub(r'[#*`>\-]', '', stripped)
-                clean = re.sub(r'<[^>]+>', '', clean)
+                clean = re.sub(r'<[^>]+>', '', stripped)
+                clean = re.sub(r'[#*`>\-]', '', clean)
                 clean = clean.strip()
                 if clean:
                     return clean[:max_len]
