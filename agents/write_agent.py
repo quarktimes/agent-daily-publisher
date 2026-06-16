@@ -64,10 +64,27 @@ class WriteAgent(BaseAgent):
 - problem: 今天遇到的技术挑战，2-3句带入情境
 - challenge: 为什么难？（规模/可靠性/延迟/成本）
 - stakes: 做错了会怎样？用具体数字或场景
-- root_causes: 字符串数组，每条追问 2-3 层"为什么"。格式："第X层——标题；内容文字"
-- solutions: 字符串数组，每条含 Before/After 代码。格式："方案标题；核心思路一句话；代码（用 <code lang='python'>...</code> 标注 Before/After）"
-- decisions: 字符串数组。格式："选了【方案A】，弃了【方案B】；理由"
-- takeaways: 字符串数组。格式："标题；正文（30-50字，有数字或trade-off）"
+## 内容质量规则（严格执行）
+
+### solutions 中的代码——必须在输出前自检
+每条 solution 里的代码必须满足：
+
+✅ 代码可以是伪代码，但**不能包含以下内容**（违反将导致 Dev.to 和 WeChat 发布失败）：
+  - ❌ image_url 或 any_url 等变量占位符不能用花括号包裹（Dev.to API 会拦截）
+  - ❌ HTML 标签如 img、br、pre 不能直接出现在代码中
+  - ❌ 代码和文字不能混在同一段（必须分开）
+  - ✅ 代码中的占位符用合法变量名：img_url 而非 {{image_url}}
+
+### mermaid 图
+- 必须是有效语法（graph TD / sequenceDiagram / flowchart LR）
+- 节点标签里的中文和英文都可以，但语法必须正确
+- 不加 ```` ```mermaid ```` 包裹——只需要源码
+
+### 格式
+- 每条 root_cause 格式：`标题；内容（追问 2-3 层 Why）`
+- 每条 solution 格式：`标题；核心思路一句话；Before 代码（如有）；After 代码`
+- 每条 decision 格式：`方案；替代方案；理由`
+- 每条 takeaway 格式：`标题；正文（含具体数字或 trade-off）`
 
 ## 写作口吻
 架构师视角，具体到数字，全文中文+技术术语英文。
@@ -78,7 +95,16 @@ class WriteAgent(BaseAgent):
 返回纯 JSON，无任何其他内容。"""
 
     def process_result(self, output: dict[str, Any], ctx: AgentContext) -> dict[str, Any]:
-        """Normalize flat output for template consumption."""
+        """Normalize flat output. Fix problematic patterns silently."""
+        import re
+        # Fix code quality issues in solutions (replace instead of raise)
+        for i, s in enumerate(output.get("solutions", [])):
+            if isinstance(s, str):
+                # Replace {variable} placeholders with safe names
+                s = re.sub(r'\{([^}]+)\}', r'\1', s)
+                # Strip HTML tags
+                s = re.sub(r'<[a-zA-Z/][^>]*>', '', s)
+                output["solutions"][i] = s
         # Fill empty required fields
         for key in ["problem", "challenge", "stakes", "mermaid"]:
             output.setdefault(key, "")
