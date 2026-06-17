@@ -57,6 +57,7 @@ class BaseAgent:
     agent_name: str = "base"
     output_schema: dict[str, Any] | None = None
     input_schema: dict[str, Any] | None = None
+    max_tokens: int = 8192
 
     def __init__(
         self,
@@ -173,7 +174,7 @@ class BaseAgent:
             for _round in range(max_tool_rounds + 1):
                 response = self.claude.messages.create(
                     model="claude-sonnet-4-6",
-                    max_tokens=8192,
+                    max_tokens=self.max_tokens,
                     system=prompt,
                     messages=messages,
                     tools=tools_config,
@@ -250,7 +251,7 @@ class BaseAgent:
         for attempt in range(max_attempts):
             response = self.claude.messages.create(
                 model="claude-sonnet-4-6",
-                max_tokens=8192,
+                max_tokens=self.max_tokens,
                 system=prompt,
                 messages=messages,
             )

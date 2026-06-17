@@ -71,12 +71,12 @@ def mermaid_to_image(mermaid_source: str, output_dir: str | None = None) -> str 
             pass
 
 
-def upload_to_wechat(png_path: str, access_token: str) -> str | None:
+def upload_to_wechat(png_path: str, access_token: str) -> tuple[str | None, str | None]:
     """
     Upload a PNG image to WeChat permanent material.
 
     Returns:
-        media_id for use in <img> tags, or None on failure
+        (media_id, image_url) - add_material returns both for images
     """
     import requests
     api_base = "https://api.weixin.qq.com/cgi-bin"
@@ -90,26 +90,8 @@ def upload_to_wechat(png_path: str, access_token: str) -> str | None:
         )
     data = resp.json()
     if data.get("media_id"):
-        return data["media_id"]
-    return None
-
-
-def get_wechat_image_url(media_id: str, access_token: str) -> str | None:
-    """
-    Get the WeChat CDN URL for a media_id.
-    WeChat returns a permanent URL for image materials.
-    """
-    import requests
-    api_base = "https://api.weixin.qq.com/cgi-bin"
-    resp = requests.get(
-        f"{api_base}/material/get_material",
-        params={"access_token": access_token},
-        json={"media_id": media_id},
-        timeout=10,
-    )
-    data = resp.json()
-    # For images, the API returns the URL directly
-    return data.get("url", None)
+        return data["media_id"], data.get("url")
+    return None, None
 
 
 def replace_mermaid_blocks_in_html(html_content: str, access_token: str) -> str:
@@ -124,14 +106,11 @@ def replace_mermaid_blocks_in_html(html_content: str, access_token: str) -> str:
 
     def _replace(match):
         full_mermaid = match.group(1) + match.group(2)
-        # Try to render
         png_path = mermaid_to_image(full_mermaid)
         if png_path and access_token:
-            media_id = upload_to_wechat(png_path, access_token)
-            if media_id:
-                img_url = get_wechat_image_url(media_id, access_token)
-                if img_url:
-                    return f'<img src="{img_url}" alt="Architecture Diagram" style="width:100%;max-width:800px;border-radius:8px;">'
+            media_id, img_url = upload_to_wechat(png_path, access_token)
+            if media_id and img_url:
+                return f'<img src="{img_url}" alt="Diagram" style="width:100%;max-width:800px;border-radius:8px;">'
 
         # Fallback: show as styled pre block
         return f'<pre style="background:#f8f9fa;padding:15px;border-radius:8px;font-size:12px;overflow-x:auto;">{full_mermaid}</pre>'

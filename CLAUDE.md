@@ -33,6 +33,13 @@ A multi-agent system that captures daily Claude Code sessions, processes them in
 - `requests` — HTTP for publishers
 - `mcp` — MCP protocol (optional, for server mode)
 
+## Modification Protocol
+
+1. **先分析** — 遇到问题先排查根因，输出方案（至少 2 个选项），不允许直接改
+2. **等我确认** — 我选择方案后，你再执行修改
+3. **改后验证** — 改完跑一遍 pipeline 确认效果，不允许合入未验证的代码
+4. **一次改一个** — 一个 PR 只解决一个问题，不堆叠修改
+
 ## Pipeline Flow
 ```
 Capture Agent (Tool-Use) → Analyze Agent (CoT) → Write Agent (Generation)

@@ -96,14 +96,11 @@ class WriteAgent(BaseAgent):
 
     def process_result(self, output: dict[str, Any], ctx: AgentContext) -> dict[str, Any]:
         """Normalize flat output. Fix problematic patterns silently."""
-        import re
-        # Fix code quality issues in solutions (replace instead of raise)
+        import re as _re
         for i, s in enumerate(output.get("solutions", [])):
             if isinstance(s, str):
-                # Replace {variable} placeholders with safe names
-                s = re.sub(r'\{([^}]+)\}', r'\1', s)
-                # Strip HTML tags
-                s = re.sub(r'<[a-zA-Z/][^>]*>', '', s)
+                s = _re.sub(r'\{([^}]+)\}', r'\1', s)
+                s = _re.sub(r'<[a-zA-Z/][^>]*>', '', s)
                 output["solutions"][i] = s
         # Fill empty required fields
         for key in ["problem", "challenge", "stakes", "mermaid"]:
@@ -126,7 +123,21 @@ class WriteAgent(BaseAgent):
         output["root_causes"] = [_parse_root_cause(s) for s in output.get("root_causes", []) if s]
 
         # Parse solutions strings into structured dicts (with code extraction)
-        output["solutions"] = [_parse_solution(s) for s in output.get("solutions", []) if s]
+        valid_solutions = []
+        for s in output.get("solutions", []):
+            if isinstance(s, str):
+                valid_solutions.append(_parse_solution(s))
+            elif isinstance(s, dict):
+                # LLM sometimes outputs dict instead of string — normalize
+                valid_solutions.append({
+                    "title": s.get("title", ""),
+                    "core_idea": s.get("core_idea", s.get("summary", "")),
+                    "code_before": s.get("code_before", ""),
+                    "code_after": s.get("code_after", s.get("code", "")),
+                    "code_lang": s.get("code_lang", "python"),
+                    "explanation": s.get("explanation", s.get("description", "")),
+                })
+        output["solutions"] = valid_solutions
 
         # Parse decisions strings
         output["decisions"] = [_parse_decision(s) for s in output.get("decisions", []) if s]
@@ -155,46 +166,75 @@ def _parse_root_cause(s: str) -> dict:
 
 def _parse_solution(s: str) -> dict:
     """Parse '标题；核心思路；代码' format. Separate code from explanation."""
-    import re
+    import re as _re
+    if not isinstance(s, str):
+        return {"title": "", "core_idea": "", "code_before": "", "code_after": "", "code_lang": "python", "explanation": str(s)}
     parts = s.split("；")
     title = parts[0].strip() if len(parts) > 0 else "方案"
     core = parts[1].strip() if len(parts) > 1 else ""
     rest = "；".join(parts[2:]) if len(parts) > 2 else core
-    rest = re.sub(r'<code[^>]*>|</code>|<pre[^>]*>|</pre>', '', rest)
+    rest = _re.sub(r'<code[^>]*>|</code>|<pre[^>]*>|</pre>', '', rest)
 
-    # Try to separate code from explanation text
-    # Code typically starts with: def, class, import, const, function, public, private, <variable> =, or ```\n
-    code_starters = (
-        r'(def\s+|class\s+|import\s+|from\s+|const\s+|var\s+|let\s+|function\s+|'
-        r'public\s+|private\s+|protected\s+|static\s+|'
-        r'\w+\s*=\s*(lambda|\(|\[|\{)|'
-        r'@\w+|#\s*(include|import|pragma))'
-    )
+    # Separate code from explanation: ``` markers are the primary boundary
     lines = rest.split("\n")
     code_lines = []
     explanation_lines = []
     in_code = False
+    found_fence = False
+    seen_closing = False
+
     for line in lines:
         stripped = line.strip()
-        if not in_code:
-            if re.match(code_starters, stripped):
+        is_fence = _re.match(r'^```[\w]*\s*$', stripped)
+
+        if is_fence:
+            if not in_code and not seen_closing:
+                # Opening ``` — start code mode
                 in_code = True
-                code_lines.append(line)
-            else:
-                explanation_lines.append(line)
-        else:
+                found_fence = True
+            elif in_code:
+                # Closing ``` — end code mode
+                in_code = False
+                seen_closing = True
+        elif in_code:
             code_lines.append(line)
+        else:
+            explanation_lines.append(line)
 
     code = "\n".join(code_lines).strip()
     explanation = "\n".join(explanation_lines).strip()
 
-    # If no code detected, show as explanation only
+    # Fallback: no ``` markers found → use code_starters
+    if not found_fence and not code:
+        code_starters = (
+            r'(def\s+|class\s+|import\s+|from\s+|const\s+|var\s+|let\s+|function\s+|'
+            r'public\s+|private\s+|protected\s+|static\s+|'
+            r'\w+\s*=\s*(lambda|\(|\[|\{)|'
+            r'@\w+|#\s*(include|import|pragma))'
+        )
+        code_lines = []
+        explanation_lines = []
+        in_code = False
+        for line in lines:
+            stripped = line.strip()
+            if not in_code:
+                if _re.match(code_starters, stripped):
+                    in_code = True
+                    code_lines.append(line)
+                else:
+                    explanation_lines.append(line)
+            else:
+                code_lines.append(line)
+        code = "\n".join(code_lines).strip()
+        explanation = "\n".join(explanation_lines).strip()
+
+    # If still no code, show as explanation only
     if not code:
         explanation = rest
 
     # Strip variable placeholders like {image_url}
-    code = re.sub(r'\{([^}]+)\}', r'\1', code)
-    explanation = re.sub(r'\{([^}]+)\}', r'\1', explanation)
+    code = _re.sub(r'\{([^}]+)\}', r'\1', code)
+    explanation = _re.sub(r'\{([^}]+)\}', r'\1', explanation)
 
     return {
         "title": title, "core_idea": core,

@@ -161,7 +161,25 @@ overall_score = 各维度加权平均
 禁止套话、鸡汤、空泛鼓励、无依据判断。
 如果数据不足，明确说明，不臆测。
 
-输出JSON格式，包含title/content/score/positive_patterns/negative_patterns/suggestions/suggested_skills/suggested_claude_updates/token_savings_pct/round_savings_pct
+## 输出格式（严格执行）
+
+content 字段用完整 Markdown，每个维度至少 3 条分析，整体 1000-2000 字。
+
+JSON 结构（注意下面用双花括号表示字面花括号，不是format占位符）：
+{{
+  "title": "Claude Code技巧 | 一句话标题",
+  "content": "完整 Markdown，含所有分析维度",
+  "score": 0-100,
+  "positive_patterns": ["做得好1", "做得好2", "做得好3"],
+  "negative_patterns": ["改进1", "改进2", "改进3"],
+  "suggestions": ["建议1", "建议2"],
+  "suggested_skills": ["/skill名: 说明"],
+  "suggested_claude_updates": ["CLAUDE.md 新增"],
+  "token_savings_pct": 0-50,
+  "round_savings_pct": 0-50
+}}
+
+只输出 JSON。
 """.replace("DATE", "{date}").replace("SC", "{sc}").replace("PC", "{pc}")
 
 
@@ -169,6 +187,7 @@ class UsageAnalysisAgent(BaseAgent):
     agent_name = "usage_analysis"
     output_schema = ANALYSIS_OUTPUT_SCHEMA
     input_schema = ANALYSIS_INPUT_SCHEMA
+    max_tokens = 16384
 
     def system_prompt(self, input_data: dict) -> str:
         date = input_data.get("date", "")
