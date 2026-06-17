@@ -156,49 +156,42 @@ def build_pipeline(
     enabled_platforms = set(enabled_platforms or [])
     target_platforms = [v for k, v in all_platforms.items() if k in enabled_platforms or not enabled_platforms]
 
-    # Store article data for WeChat MDNice rendering
-    _article_for_wechat = {}
+    # Stash WeChat HTML for publish stage
+    _wechat_stash: dict = {}
 
-    def _stash_article(data: dict) -> dict:
-        _article_for_wechat.update(_extract_article(data) if isinstance(data, dict) else {})
-        return {
-            "article": _extract_article(data),
-            "platforms": target_platforms,
-        }
-
-    def _inject_mdnice(data: dict) -> dict:
-        """Replace Adapt's plain WeChat version with MDNice HTML."""
-        if not _article_for_wechat:
-            return data
-        versions = data.get("versions", []) if isinstance(data, dict) else []
-        for v in versions:
-            if v.get("platform") == "wechat_mp":
-                try:
-                    from tools.template_renderer import TemplateRenderer
-                    renderer = TemplateRenderer()
-                    html = renderer.render(_article_for_wechat, "wechat_mp")
-                    if html and len(html) > 100:
-                        v["content"] = html
-                        logger.info("WeChat: MDNice HTML injected")
-                except Exception as e:
-                    logger.debug(f"MDNice inject skipped: {e}")
-                break
-        return data
+    def _stash_wechat(data: dict) -> dict:
+        article = _extract_article(data) if isinstance(data, dict) else {}
+        if isinstance(article, dict) and article.get("_wechat_html"):
+            _wechat_stash["html"] = article["_wechat_html"]
+        return {"article": article, "platforms": target_platforms}
 
     orchestrator.add_stage(
         "adapt",
         adapt_agent,
-        input_transform=_stash_article,
-        output_transform=_inject_mdnice,
+        input_transform=_stash_wechat,
         critical=False,
     )
 
     def _check_versions(data: dict) -> dict:
-        """Language gate: retranslate Dev.to version if Chinese."""
+        """Language gate + inject WeChat HTML."""
         import re as _re
         versions = data.get("versions", []) if isinstance(data, dict) else data
         if not isinstance(versions, list):
             versions = []
+
+        # Inject pre-rendered WeChat HTML from stash
+        wechat_html = _wechat_stash.get("html", "")
+        if wechat_html:
+            # Remove existing wechat version if adapt created one
+            versions = [v for v in versions if v.get("platform") != "wechat_mp"]
+            versions.append({
+                "platform": "wechat_mp",
+                "title": "",
+                "content": wechat_html,
+                "tags": [],
+                "language": "zh",
+            })
+
         for v in versions:
             if v.get("platform") == "devto":
                 cn_chars = len(_re.findall(r'[一-鿿]', v.get("content", "")[:500]))
@@ -296,7 +289,7 @@ _FALLBACK_TITLES = [
 
 
 def _validate_and_save(article: dict) -> dict:
-    """Validate privacy, save, generate cover. Content already rendered by JudgeLoopPipeline."""
+    """Validate, save Markdown, render WeChat HTML via MD2WeChat."""
     if isinstance(article, (list, tuple)):
         article = article[0]
     if not isinstance(article, dict):
@@ -311,16 +304,15 @@ def _validate_and_save(article: dict) -> dict:
         fallback = random.choice(_FALLBACK_TITLES)
         logger.warning(f"Bad title '{raw_title}' → replaced with '{fallback}'")
         article["title"] = fallback
-        article["_title_fixed"] = True
 
-    # Save rendered Markdown
+    # Save original Markdown (not rendered — this IS the source)
     try:
         path = save_article(article)
         logger.info(f"Article saved: {path}")
     except Exception as e:
         logger.warning(f"Could not save article: {e}")
 
-    # Privacy validation on rendered content
+    # Privacy validation
     is_safe, findings = validate_article_safe(article)
     if not is_safe:
         logger.warning(f"⚠️  {len(findings)} potential secrets found")
@@ -338,6 +330,19 @@ def _validate_and_save(article: dict) -> dict:
             logger.info(f"🖼️  Cover generated: {cover_path}")
     except Exception as e:
         logger.warning(f"Cover generation skipped: {e}")
+
+    # Render WeChat HTML via MD2WeChat (for publish stage)
+    try:
+        from tools.wechat_renderer import WeChatRenderer
+        md = article.get("content", "")
+        if md:
+            renderer = WeChatRenderer(style="tech")
+            wechat_html = renderer.render(md, article.get("title", ""),
+                                          datetime.now().strftime("%Y-%m-%d"))
+            article["_wechat_html"] = wechat_html
+            logger.info(f"  微信HTML: {len(wechat_html)} chars")
+    except Exception as e:
+        logger.warning(f"  WeChat render skipped: {e}")
 
     return article
 
