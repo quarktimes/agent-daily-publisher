@@ -76,32 +76,11 @@ content 是完整 Markdown，包含以下章节。**不要用结构化字段—�
 每层追问"为什么"。用 `### 根因N：标题` 分节。
 
 ### 3. 方案
-每段方案用 `### 方案N：标题` 分节。格式：
-```
-### 方案1：方案标题
-
-**核心思路**：一句话
-
-Before（如有）：
-```python
-旧代码
-```
-
-After：
-```python
-新代码
-```
-
-解释这段代码解决了什么。
-```
+每段方案用 H3 标题分节，包含 Before/After 代码段和解释。
+代码段用反引号包裹并标注语言。
 
 ### 4. 架构决策
-用 Markdown 表格：
-```
-| 决策 | 替代方案 | 理由 |
-|------|---------|------|
-| 选的A | 弃的B | 为什么 |
-```
+用 Markdown 表格（| 列名 | 列名 | ），至少 2 行对比。
 
 ### 5. 生产考量
 2-4条要点，每条用 `**标题**：内容` 格式。
@@ -109,12 +88,15 @@ After：
 ### 6. 关键收获
 3-5条，用 Markdown 列表 `- **标题**：内容（含数字或 trade-off）`
 
-## 代码质量要求
-- ``` 必须单独一行，后面跟语言标签（python/java/bash/mermaid/text）
+## 代码块格式
+
+规则：
+- 反引号开合必须成对出现
+- 反引号后必须紧跟语言标签（python/java/bash/mermaid）
+- 说明文字放代码块外面
 - 代码里不能出现 {{image_url}} {{any_url}} 等花括号占位符
-- 代码里不能出现 HTML 标签（img/br/pre 等）
-- 代码和尾随文字必须分开放，文字不能混在代码块里
-- Mermaid 源码放在 diagrams 字段，正文中引用即可
+
+【重要】输出前自检：全文搜索是否包含单独一行的三个反引号。如果有，说明你输出了空代码块，删除它。
 
 ## 写作口吻
 架构师视角，具体到数字，全文中文+技术术语英文。
@@ -136,8 +118,9 @@ After：
         output.setdefault("mermaid", "")
         output.setdefault("tags", [])
 
-        # Fix common code issues in content
+        # Cleanup: remove empty ``` fences, replace placeholders, strip HTML
         content = output.get("content", "")
+        content = _re.sub(r'^```\s*$', '', content, flags=_re.MULTILINE)
         content = _re.sub(r'\{([^}]+)\}', r'\1', content)
         content = _re.sub(r'<[a-zA-Z/][^>]*>', '', content)
         output["content"] = content
