@@ -1,17 +1,24 @@
 """
-Cover Image Generator — Create OG/thumbnail images for articles.
+Cover Image Generator — Tech-blog-style OG/thumbnail images.
 
-Generates a tech-blog-style cover card with:
-  - Dark gradient background (tech aesthetic)
-  - Article title overlaid in white
-  - Date and platform badges
-  - Code-themed decorative elements
+Generates 1200x630 PNG with:
+  - Dynamic color palette based on article tags
+  - Geometric decorative elements (bars, circles)
+  - Large title with auto text wrapping
+  - Tag badges and date footer
+  - No external dependencies beyond PIL
 
-Used for: Dev.to social preview, WeChat MP thumbnails, article header images.
+Color themes per tag keyword:
+  AI/Agent/LLM/MCP/RAG → Indigo (blue-purple)
+  Backend/API/Database  → Teal (green-blue)
+  Frontend/Flutter/CSS  → Orange
+  Architecture/System   → Slate (cool gray)
+  Default               → Dark slate
 """
 
 import io
 import os
+import re
 import textwrap
 from datetime import datetime
 from pathlib import Path
@@ -23,180 +30,168 @@ try:
 except ImportError:
     HAS_PIL = False
 
+W, H = 1200, 630
 
-# Default colors — dark theme like Hashnode/Dev.to
-COLORS = {
-    "bg_start": (30, 30, 60),       # Dark navy
-    "bg_end": (10, 10, 40),         # Almost black
-    "text_primary": (255, 255, 255),
-    "text_secondary": (180, 190, 210),
-    "accent": (100, 180, 255),       # Blue accent
-    "code_bg": (50, 50, 80),         # Slightly lighter dark
-    "border": (60, 70, 100),
+# Color themes — each is (primary, primary_dark, accent, bg_start, bg_end, tag_bg, tag_text)
+THEMES = {
+    "indigo": {
+        "primary": (79, 70, 229), "primary_dark": (49, 46, 129),
+        "accent": (165, 180, 252), "accent2": (129, 140, 248),
+        "bg_start": (15, 23, 42), "bg_end": (30, 41, 59),
+        "tag_bg": (79, 70, 229), "tag_text": (199, 210, 254),
+        "circle": (129, 140, 248),
+    },
+    "teal": {
+        "primary": (5, 150, 105), "primary_dark": (6, 95, 70),
+        "accent": (110, 231, 183), "accent2": (52, 211, 153),
+        "bg_start": (2, 44, 34), "bg_end": (6, 78, 59),
+        "tag_bg": (5, 150, 105), "tag_text": (167, 243, 208),
+        "circle": (52, 211, 153),
+    },
+    "orange": {
+        "primary": (234, 88, 12), "primary_dark": (154, 52, 18),
+        "accent": (251, 191, 36), "accent2": (251, 146, 60),
+        "bg_start": (39, 20, 10), "bg_end": (69, 39, 16),
+        "tag_bg": (234, 88, 12), "tag_text": (254, 215, 170),
+        "circle": (251, 146, 60),
+    },
+    "slate": {
+        "primary": (71, 85, 105), "primary_dark": (30, 41, 59),
+        "accent": (148, 163, 184), "accent2": (100, 116, 139),
+        "bg_start": (15, 23, 42), "bg_end": (30, 41, 59),
+        "tag_bg": (71, 85, 105), "tag_text": (203, 213, 225),
+        "circle": (100, 116, 139),
+    },
+    "blue": {
+        "primary": (37, 99, 235), "primary_dark": (30, 64, 175),
+        "accent": (147, 197, 253), "accent2": (96, 165, 250),
+        "bg_start": (12, 25, 60), "bg_end": (23, 37, 84),
+        "tag_bg": (37, 99, 235), "tag_text": (191, 219, 254),
+        "circle": (96, 165, 250),
+    },
 }
 
-# Image dimensions (OG standard)
-WIDTH = 1200
-HEIGHT = 630
+
+def _pick_theme(tags: list[str] | None) -> dict:
+    """Pick color theme based on article tags."""
+    text = " ".join(tags or []).lower()
+    if any(w in text for w in ["ai", "agent", "llm", "mcp", "rag", "tool calling"]):
+        return THEMES["indigo"]
+    if any(w in text for w in ["backend", "api", "database", "sql", "server"]):
+        return THEMES["teal"]
+    if any(w in text for w in ["frontend", "flutter", "css", "react", "vue"]):
+        return THEMES["orange"]
+    if any(w in text for w in ["architecture", "system", "design", "pipeline"]):
+        return THEMES["slate"]
+    return THEMES["indigo"]
 
 
-def generate_cover(title: str, date_str: str | None = None, tags: list[str] | None = None,
-                   output_dir: str | None = None) -> str | None:
-    """
-    Generate a cover image for an article.
-
-    Args:
-        title: Article title
-        date_str: Date string (YYYY-MM-DD)
-        tags: List of tag strings
-        output_dir: Directory to save the image (default: data/covers)
-
-    Returns:
-        Path to generated image, or None if PIL unavailable
-    """
-    if not HAS_PIL:
-        return None
-
-    if date_str is None:
-        date_str = datetime.now().strftime("%Y-%m-%d")
-
-    if output_dir is None:
-        output_dir = os.path.join(
-            os.path.dirname(os.path.dirname(__file__)), "data", "covers"
-        )
-    Path(output_dir).mkdir(parents=True, exist_ok=True)
-
-    # Create gradient background
-    img = Image.new("RGB", (WIDTH, HEIGHT), COLORS["bg_start"])
-    draw = ImageDraw.Draw(img)
-
-    # Gradient fill
-    for y in range(HEIGHT):
-        ratio = y / HEIGHT
-        r = int(COLORS["bg_start"][0] + (COLORS["bg_end"][0] - COLORS["bg_start"][0]) * ratio)
-        g = int(COLORS["bg_start"][1] + (COLORS["bg_end"][1] - COLORS["bg_start"][1]) * ratio)
-        b = int(COLORS["bg_start"][2] + (COLORS["bg_end"][2] - COLORS["bg_start"][2]) * ratio)
-        draw.rectangle([(0, y), (WIDTH, y + 1)], fill=(r, g, b))
-
-    # --- Decorative code-like pattern in background ---
-    font_code = _get_font(14)
-    code_lines = [
-        "def build_agent():",
-        "    pipeline = Pipeline()",
-        "    pipeline.add(ReActLoop(max_retries=3))",
-        "    pipeline.add(JudgeAgent(threshold=80))",
-        "    return pipeline.deploy()",
-        "",
-        "# Agent Daily Publisher",
-        f"# {date_str}",
-    ]
-    y_start = HEIGHT - 20 - len(code_lines) * 18
-    for i, line in enumerate(code_lines):
-        y = y_start + i * 18
-        if y > 0:
-            draw.text((30, y), line, fill=COLORS["code_bg"], font=font_code)
-
-    # --- Accent line ---
-    draw.rectangle([(50, 200), (200, 204)], fill=COLORS["accent"])
-
-    # --- Tag badges ---
-    if tags:
-        font_tag = _get_font(16)
-        x = 50
-        for tag in tags[:4]:
-            tag_text = f"#{tag}"
-            bbox = draw.textbbox((0, 0), tag_text, font=font_tag)
-            tw = bbox[2] - bbox[0] + 20
-            th = bbox[3] - bbox[1] + 10
-            draw.rounded_rectangle([(x, 70), (x + tw, 70 + th)], radius=6,
-                                   fill=COLORS["code_bg"], outline=COLORS["border"], width=1)
-            draw.text((x + 10, 75), tag_text, fill=COLORS["accent"], font=font_tag)
-            x += tw + 10
-
-    # --- Date ---
-    font_date = _get_font(18)
-    draw.text((50, 115), date_str, fill=COLORS["text_secondary"], font=font_date)
-
-    # --- Title ---
-    font_title = _get_font(40, bold=True)
-    font_title_small = _get_font(32, bold=True)
-
-    # Wrap title to fit
-    title_lines = _wrap_title(title, font_title if len(title) <= 30 else font_title_small, max_width=WIDTH - 100)
-    y_title = 170
-    for line in title_lines:
-        draw.text((50, y_title), line, fill=COLORS["text_primary"],
-                  font=font_title if len(line) <= 25 else font_title_small)
-        y_title += 55 if font_title else 45
-
-    # --- Bottom bar ---
-    draw.rectangle([(0, HEIGHT - 4), (WIDTH, HEIGHT)], fill=COLORS["accent"])
-
-    # --- Source watermark ---
-    font_wm = _get_font(14)
-    draw.text((50, HEIGHT - 30), "Agent Daily Publisher", fill=COLORS["text_secondary"], font=font_wm)
-
-    # Save
-    safe_title = "".join(c if c.isalnum() or c in " _-" else "_" for c in title[:30])
-    filename = f"{date_str}_{safe_title}.png"
-    filepath = os.path.join(output_dir, filename)
-    img.save(filepath, "PNG")
-    return filepath
-
-
-def _get_font(size: int, bold: bool = False) -> ImageFont.FreeTypeFont | ImageFont.ImageFont:
-    """Get a font, falling back to default if system font unavailable."""
-    font_paths = [
+def _get_font(size: int, bold: bool = False):
+    """Get font with fallback."""
+    paths = [
+        "/System/Library/Fonts/STHeiti Medium.ttc",
         "/System/Library/Fonts/Helvetica.ttc",
-        "/System/Library/Fonts/PingFang.ttc",
-        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
-        "/System/Library/Fonts/SFNSText.ttf",
+        "/Library/Fonts/Arial.ttf",
     ]
-    if bold:
-        font_paths = [
-            "/System/Library/Fonts/Helvetica.ttc",
-            "/System/Library/Fonts/PingFang.ttc",
-            "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
-            "/System/Library/Fonts/SFNSText.ttf",
-        ]
-
-    for fp in font_paths:
-        if os.path.exists(fp):
+    for p in paths:
+        if os.path.exists(p):
             try:
-                return ImageFont.truetype(fp, size)
+                return ImageFont.truetype(p, size)
             except Exception:
                 continue
     return ImageFont.load_default()
 
 
-def _wrap_title(title: str, font: ImageFont.FreeTypeFont, max_width: int) -> list[str]:
-    """Smart wrap title to fit image width, preserving Chinese character boundaries."""
-    # For CJK text, each char is roughly the same width
-    # For mixed CJK + ASCII, estimate widths
-    lines = []
-    current = ""
-    for char in title:
-        test = current + char
-        # Rough width estimate: CJK ~ font.size, ASCII ~ font.size * 0.6
-        width = sum(font.size if ord(c) > 127 else font.size * 0.6 for c in test)
-        if width > max_width and current:
-            lines.append(current)
-            current = char
-        else:
-            current = test
-    if current:
-        lines.append(current)
-    return lines[:4]  # Max 4 lines
+def _draw_gradient(draw: ImageDraw, colors: tuple):
+    """Vertical gradient fill."""
+    for y in range(H):
+        r = colors["bg_start"][0] + (colors["bg_end"][0] - colors["bg_start"][0]) * y // H
+        g = colors["bg_start"][1] + (colors["bg_end"][1] - colors["bg_start"][1]) * y // H
+        b = colors["bg_start"][2] + (colors["bg_end"][2] - colors["bg_start"][2]) * y // H
+        draw.rectangle([(0, y), (W, y + 1)], fill=(r, g, b))
 
 
-def generate_and_return_bytes(title: str, date_str: str | None = None,
-                               tags: list[str] | None = None) -> io.BytesIO | None:
-    """Generate cover and return as in-memory bytes (for API uploads)."""
-    path = generate_cover(title, date_str, tags)
-    if not path:
+def _draw_decorations(img, draw, colors: dict):
+    """Add geometric decorative elements."""
+    # Left accent bars
+    for i, c in enumerate([colors["primary"], colors["accent2"], colors["accent"]]):
+        x = 36 + i * 6
+        draw.rectangle([(x, 50), (x + 4, H - 50)], fill=c)
+
+    # Semi-transparent circles on the right
+    for cx, cy, r in [(980, 140, 180), (1080, 480, 130), (820, 350, 90)]:
+        overlay = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+        od = ImageDraw.Draw(overlay)
+        od.ellipse([(cx - r, cy - r), (cx + r, cy + r)],
+                    fill=colors["circle"] + (25,))
+        img_d = img.convert("RGBA")
+        img_d = Image.alpha_composite(img_d, overlay)
+        # Copy back to original
+        img.paste(img_d.convert("RGB"))
+        draw = ImageDraw.Draw(img)
+
+    return draw
+
+
+def generate_cover(title: str, date_str: str | None = None,
+                   tags: list[str] | None = None,
+                   output_dir: str | None = None) -> str | None:
+    """Generate a cover image. Returns path to PNG."""
+    if not HAS_PIL:
         return None
-    buf = io.BytesIO()
-    with open(path, "rb") as f:
-        buf.write(f.read())
-    buf.seek(0)
-    return buf
+    if date_str is None:
+        date_str = datetime.now().strftime("%Y-%m-%d")
+    if output_dir is None:
+        output_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "covers")
+    Path(output_dir).mkdir(parents=True, exist_ok=True)
+
+    theme = _pick_theme(tags)
+    img = Image.new("RGB", (W, H), theme["bg_start"])
+    draw = ImageDraw.Draw(img)
+
+    _draw_gradient(draw, theme)
+    draw = _draw_decorations(img, draw, theme)
+
+    # Tag badge
+    tag_display = (tags or ["tech"])[0]
+    if len(tag_display) > 18:
+        tag_display = tag_display[:18]
+    tag_font = _get_font(16)
+    tw = len(tag_display) * 10 + 28
+    tx, ty = 56, 70
+    draw.rounded_rectangle([(tx, ty), (tx + tw, ty + 28)], radius=14, fill=theme["tag_bg"])
+    draw.text((tx + 14, ty + 6), tag_display, fill=theme["tag_text"], font=tag_font)
+
+    # Title
+    safe_title = re.sub(r'[^\w\s一-鿿\-：，。！？、]', '', title)[:60]
+    title_font = _get_font(46, bold=True)
+    title_font_m = _get_font(36, bold=True)
+    lines = textwrap.wrap(safe_title, width=16)
+    if len(lines) > 3:
+        lines = lines[:3]
+    if len(lines) > 2:
+        title_font = title_font_m
+        lines = textwrap.wrap(safe_title, width=20)[:3]
+
+    y = 140
+    for line in lines:
+        draw.text((56, y), line, fill=(255, 255, 255), font=title_font)
+        y += 56 if title_font.size > 40 else 44
+
+    # Subtitle = second tag (optional)
+    if tags and len(tags) > 1:
+        sub = tags[1]
+        sub_font = _get_font(20)
+        draw.text((56, y + 12), sub, fill=theme["accent"], font=sub_font)
+
+    # Bottom bar
+    bar_y = H - 50
+    draw.rectangle([(0, bar_y), (W, bar_y + 4)], fill=theme["primary"])
+
+
+
+    # Save
+    safe_fn = re.sub(r'[^\w\-]', '_', safe_title[:30]).strip('_') or "cover"
+    fp = os.path.join(output_dir, f"{date_str}_{safe_fn}.png")
+    img.save(fp, "PNG")
+    return fp
